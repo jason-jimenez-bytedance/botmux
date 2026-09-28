@@ -47,8 +47,8 @@ describe('tmux functional probe diagnostics', () => {
     if (result.ok) return;
     expect(result.binaryPresent).toBe(true);
     expect(result.retryable).toBe(true);
-    expect(result.reason).toContain('超时');
-    expect(result.reason).not.toContain('不在 PATH');
+    expect(result.reason).toContain('timed out');
+    expect(result.reason).not.toContain('not on PATH');
   });
 
   it('surfaces functional-probe stderr', () => {

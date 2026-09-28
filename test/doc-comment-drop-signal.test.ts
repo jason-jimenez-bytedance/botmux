@@ -237,8 +237,8 @@ describe('processCommentEvent 的接线点（源码形状）', () => {
   it('前两个打点都必须收窄，不能在别人的评论上打标记', () => {
     // trigger 缺失只证明回复数据不完整，不证明这条回复冲 bot 来的 —— 已订阅文档下
     // 别人的普通回复同样推事件，那条 reply 没被拉到就会走到第二个打点。
-    const firstDrop = regionBetween('取不到评论内容', 'const trigger = parsed.replyId');
-    const secondDrop = regionBetween('不在拉到的', 'const triggerIndex');
+    const firstDrop = regionBetween('if (!comment || comment.replies.length === 0) {', 'const trigger = parsed.replyId');
+    const secondDrop = regionBetween('if (!trigger) {', 'const triggerIndex');
     expect(firstDrop).toContain('mayConcernThisBot');
     expect(secondDrop).toContain('mayConcernThisBot');
   });

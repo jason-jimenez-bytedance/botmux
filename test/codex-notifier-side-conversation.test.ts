@@ -544,7 +544,7 @@ describe('Codex Side Chat IPC monitor', () => {
 
     const connected = connectOnce(monitor, controller.signal);
     await vi.waitFor(() => expect(
-      warnings.some(message => message.includes('内存待入队已达上限')),
+      warnings.some(message => message.includes('in-memory pending queue is full')),
     ).toBe(true));
     enqueueFails = false;
     await vi.waitFor(() => expect(accepted).toEqual(['turn-side']));
@@ -725,7 +725,7 @@ describe('Codex Side Chat IPC monitor', () => {
 
     await connectOnce(oversizedMonitor);
     expect(oversizedSocket.destroyed).toBe(true);
-    expect(warnings.some(message => message.includes('帧长度无效'))).toBe(true);
+    expect(warnings.some(message => message.includes('Invalid Codex Desktop IPC frame length'))).toBe(true);
   });
 
   it('times out both a stalled connection and a stalled initialize handshake', async () => {
@@ -749,7 +749,7 @@ describe('Codex Side Chat IPC monitor', () => {
     });
     await connectOnce(connectMonitor);
     expect(connectSocket.destroyed).toBe(true);
-    expect(connectWarnings.some(message => message.includes('连接超时'))).toBe(true);
+    expect(connectWarnings.some(message => message.includes('Codex Desktop IPC connection timed out'))).toBe(true);
 
     const stalledInitializeSocket = new FakeIpcSocket();
     const initializeWarnings: string[] = [];
@@ -772,6 +772,6 @@ describe('Codex Side Chat IPC monitor', () => {
     });
     await connectOnce(initializeMonitor);
     expect(stalledInitializeSocket.destroyed).toBe(true);
-    expect(initializeWarnings.some(message => message.includes('初始化超时'))).toBe(true);
+    expect(initializeWarnings.some(message => message.includes('Codex Desktop IPC initialization timed out'))).toBe(true);
   });
 });
