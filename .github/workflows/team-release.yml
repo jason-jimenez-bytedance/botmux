@@ -43,7 +43,7 @@ jobs:
             artifact: linux-arm64
             linux_baseline: true
           - os: macos-14
-            targets: bun-darwin-x64 bun-darwin-arm64
+            targets: bun-darwin-x64-baseline bun-darwin-arm64
             artifact: darwin
             linux_baseline: false
     runs-on: ${{ matrix.os }}
@@ -91,9 +91,11 @@ jobs:
         run: |
           mkdir -p dist-bin
           for target in ${{ matrix.targets }}; do
+            output_suffix="${target#bun-}"
+            output_suffix="${output_suffix%-baseline}"
             bun scripts/build-bun-binary.mjs \
               --target "$target" \
-              --out "dist-bin/botmux-${target#bun-}"
+              --out "dist-bin/botmux-$output_suffix"
           done
 
       - name: Verify macOS signatures

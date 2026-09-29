@@ -126,6 +126,15 @@ describe('team-release.yml', () => {
     expect(runs('publish')).toContain('--traex-version "0.207.1"');
   });
 
+  it('builds the public macOS x64 asset with Bun baseline CPU compatibility', () => {
+    const native = runs('native');
+    const source = readFileSync(resolve('scripts/build-bun-binary.mjs'), 'utf8');
+    expect(JSON.stringify(jobs.native)).toContain('bun-darwin-x64-baseline');
+    expect(native).toContain('output_suffix="${output_suffix%-baseline}"');
+    expect(source).toContain("'bun-darwin-x64-baseline'");
+    expect(source).toContain(".replace(/-baseline$/, '')");
+  });
+
   it('resolves an annotated tag to its commit without passing literal quotes to git', () => {
     const provenance = 'test "$(git rev-parse HEAD)" = "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"';
     expect(runs('native')).toContain(provenance);
