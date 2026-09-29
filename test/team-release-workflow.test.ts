@@ -126,6 +126,14 @@ describe('team-release.yml', () => {
     expect(runs('publish')).toContain('--traex-version "0.207.1"');
   });
 
+  it('resolves an annotated tag to its commit without passing literal quotes to git', () => {
+    const provenance = 'test "$(git rev-parse HEAD)" = "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"';
+    expect(runs('native')).toContain(provenance);
+    expect(runs('musl')).toContain(provenance);
+    expect(runs('native')).not.toContain('git rev-parse \\"${GITHUB_REF_NAME}^{commit}\\"');
+    expect(runs('musl')).not.toContain('git rev-parse \\"${GITHUB_REF_NAME}^{commit}\\"');
+  });
+
   it('verifies checksum contents, refuses overwrite, and leaves a complete draft for live acceptance', () => {
     const publish = runs('publish');
     expect(publish).toContain('sha256sum -c ./*.sha256');
