@@ -126,13 +126,17 @@ describe('team-release.yml', () => {
     expect(runs('publish')).toContain('--traex-version "0.207.1"');
   });
 
-  it('builds the public macOS x64 asset with Bun baseline CPU compatibility', () => {
-    const native = runs('native');
+  it('builds and smokes each macOS target on its matching native architecture', () => {
+    const matrix = JSON.stringify(jobs.native);
     const source = readFileSync(resolve('scripts/build-bun-binary.mjs'), 'utf8');
-    expect(JSON.stringify(jobs.native)).toContain('bun-darwin-x64-baseline');
-    expect(native).toContain('output_suffix="${output_suffix%-baseline}"');
-    expect(source).toContain("'bun-darwin-x64-baseline'");
-    expect(source).toContain(".replace(/-baseline$/, '')");
+    expect(matrix).toContain('macos-15-intel');
+    expect(matrix).toContain('bun-darwin-x64');
+    expect(matrix).toContain('"expected_uname":"x86_64"');
+    expect(matrix).toContain('macos-14');
+    expect(matrix).toContain('bun-darwin-arm64');
+    expect(matrix).toContain('"expected_uname":"arm64"');
+    expect(runs('native')).toContain('test "$(uname -m)" = "${{ matrix.expected_uname }}"');
+    expect(source).not.toContain("'bun-darwin-x64-baseline'");
   });
 
   it('resolves an annotated tag to its commit without passing literal quotes to git', () => {
