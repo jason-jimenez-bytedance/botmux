@@ -42,9 +42,15 @@ jobs:
             targets: bun-linux-arm64
             artifact: linux-arm64
             linux_baseline: true
+          - os: macos-15-intel
+            targets: bun-darwin-x64
+            artifact: darwin-x64
+            expected_uname: x86_64
+            linux_baseline: false
           - os: macos-14
-            targets: bun-darwin-x64-baseline bun-darwin-arm64
-            artifact: darwin
+            targets: bun-darwin-arm64
+            artifact: darwin-arm64
+            expected_uname: arm64
             linux_baseline: false
     runs-on: ${{ matrix.os }}
     env:
@@ -72,6 +78,10 @@ jobs:
       - if: matrix.linux_baseline == false
         run: bun install --frozen-lockfile
 
+      - name: Verify macOS runner architecture
+        if: matrix.linux_baseline == false
+        run: test "$(uname -m)" = "${{ matrix.expected_uname }}"
+
       - name: Stamp release version
         if: matrix.linux_baseline == false
         run: npm version "${RELEASE_TAG#v}" --no-git-tag-version --allow-same-version
@@ -91,11 +101,9 @@ jobs:
         run: |
           mkdir -p dist-bin
           for target in ${{ matrix.targets }}; do
-            output_suffix="${target#bun-}"
-            output_suffix="${output_suffix%-baseline}"
             bun scripts/build-bun-binary.mjs \
               --target "$target" \
-              --out "dist-bin/botmux-$output_suffix"
+              --out "dist-bin/botmux-${target#bun-}"
           done
 
       - name: Verify macOS signatures
