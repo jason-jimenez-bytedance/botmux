@@ -96,13 +96,15 @@ export const BOTMUX_REDIRECT_URL = 'http://127.0.0.1:9768/callback';
 const FEISHU_ACCOUNTS_ORIGIN = 'https://accounts.feishu.cn';
 const ASK_FEISHU_ORIGIN = 'https://ask.feishu.cn';
 const FEISHU_APP_ID = '12';
-const FEISHU_COMMON_HEADERS = {
-  'x-api-version': '1.0.28',
-  'x-device-info':
-    'device_id=0;device_name=Chrome;device_os=Mac;device_model=Chrome;lark_version=;channel=Release;package_name=feishu;tt_app_id=1658;is_dpop_support=true;is_iframe=false',
-  'x-locale': 'zh-CN',
-  'x-terminal-type': '2',
-};
+function feishuCommonHeaders(): Record<string, string> {
+  return {
+    'x-api-version': '1.0.28',
+    'x-device-info':
+      'device_id=0;device_name=Chrome;device_os=Mac;device_model=Chrome;lark_version=;channel=Release;package_name=feishu;tt_app_id=1658;is_dpop_support=true;is_iframe=false',
+    'x-locale': getDefaultLocale() === 'en' ? 'en-US' : 'zh-CN',
+    'x-terminal-type': '2',
+  };
+}
 
 export interface StoredCookie {
   name: string;
@@ -2796,7 +2798,7 @@ async function initFeishuQrLogin(
   const response = await session.fetchRaw(fetcher, endpoint, {
     method: 'POST',
     headers: {
-      ...FEISHU_COMMON_HEADERS,
+      ...feishuCommonHeaders(),
       'x-app-id': FEISHU_APP_ID,
       accept: 'application/json',
       'content-type': 'application/json',
@@ -2827,7 +2829,7 @@ async function pollFeishuQrLogin(
   const response = await session.fetchRaw(fetcher, endpoint, {
     method: 'POST',
     headers: {
-      ...FEISHU_COMMON_HEADERS,
+      ...feishuCommonHeaders(),
       'x-app-id': FEISHU_APP_ID,
       'x-flow-key': flowKey,
       accept: 'application/json',

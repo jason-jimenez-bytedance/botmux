@@ -10,6 +10,7 @@
 
 import { config } from '../../config.js';
 import { buildV3RunDetailUrl } from '../../core/dashboard-url.js';
+import { DEFAULT_LOCALE, t, type Locale } from '../../i18n/index.js';
 import { DEFAULT_HUMAN_GATE_OPTIONS } from '../../workflows/v3/dag.js';
 import { splitV3HostGatePrompt } from '../../workflows/v3/host-bindings.js';
 
@@ -38,6 +39,7 @@ export interface V3GateCardInput {
   nonce?: string;
   webDetailUrl?: string;
   promptMaxChars?: number;
+  locale?: Locale;
   options?: string[];
   approveOptions?: string[];
   approvers?: string[];
@@ -63,6 +65,7 @@ export function v3RunDetailUrl(runId: string): string {
 }
 
 export function buildV3GateCard(input: V3GateCardInput): string {
+  const locale = input.locale ?? DEFAULT_LOCALE;
   const nonce = input.nonce ?? v3GateCardNonce(input.runId, input.waitId);
   const webDetailUrl = input.webDetailUrl ?? v3RunDetailUrl(input.runId);
   const promptMax = input.promptMaxChars ?? DEFAULT_PROMPT_MAX_CHARS;
@@ -73,8 +76,12 @@ export function buildV3GateCard(input: V3GateCardInput): string {
   const approveOptions = input.approveOptions ?? (options.includes('approve') ? ['approve'] : [options[0]!]);
 
   const title = resolution
-    ? `${resolutionPrefix(resolution.kind)}：${titleText(input.nodeId)}`
-    : `需要审批：${titleText(input.nodeId)}`;
+    ? t(
+      resolution.kind === 'approved' ? 'workflow.v3.gate.title.approved' : 'workflow.v3.gate.title.rejected',
+      { node: titleText(input.nodeId) },
+      locale,
+    )
+    : t('workflow.v3.gate.title.pending', { node: titleText(input.nodeId) }, locale);
   const template = resolution ? (resolution.kind === 'approved' ? 'green' : 'red') : 'blue';
 
   const elements: Array<Record<string, unknown>> = [
@@ -82,13 +89,13 @@ export function buildV3GateCard(input: V3GateCardInput): string {
       tag: 'div',
       fields: [
         { is_short: true, text: { tag: 'lark_md', content: `**Run**\n${escapeMd(short(input.runId, 24))}` } },
-        { is_short: true, text: { tag: 'lark_md', content: `**节点**\n${escapeMd(input.nodeId)}` } },
+        { is_short: true, text: { tag: 'lark_md', content: `**${t('workflow.v3.gate.field.node', undefined, locale)}**\n${escapeMd(input.nodeId)}` } },
       ],
     },
     { tag: 'hr' },
     {
       tag: 'div',
-      text: { tag: 'lark_md', content: '**审批内容**' },
+      text: { tag: 'lark_md', content: `**${t('workflow.v3.gate.approval', undefined, locale)}**` },
     },
     {
       tag: 'div',
@@ -105,7 +112,7 @@ export function buildV3GateCard(input: V3GateCardInput): string {
       tag: 'div',
       text: {
         tag: 'plain_text',
-        content: `冻结输入 Hash（本次批准对象）\n${input.hostApproval.inputHash}`,
+        content: t('workflow.v3.gate.input_hash', { hash: input.hostApproval.inputHash }, locale),
       },
     });
     if (hostPrompt?.preview) {
@@ -116,7 +123,7 @@ export function buildV3GateCard(input: V3GateCardInput): string {
         // neutralize Lark-native tags (<at>, links, etc.).
         text: {
           tag: 'plain_text',
-          content: `冻结输入预览（完整；敏感字段按键名脱敏）\n${hostPrompt.preview}`,
+          content: t('workflow.v3.gate.input_preview', { preview: hostPrompt.preview }, locale),
         },
       });
     }
@@ -129,7 +136,13 @@ export function buildV3GateCard(input: V3GateCardInput): string {
       text: {
         tag: 'plain_text',
         content:
-          (resolution.kind === 'approved' ? '✅ 已通过' : '❌ 已拒绝') +
+          t(
+            resolution.kind === 'approved'
+              ? 'workflow.v3.gate.resolved.approved'
+              : 'workflow.v3.gate.resolved.rejected',
+            undefined,
+            locale,
+          ) +
           (resolution.selected ? ` · ${short(resolution.selected, 20)}` : '') +
           (resolution.by ? ` · by ${short(resolution.by, 20)}` : ''),
       },
@@ -137,7 +150,7 @@ export function buildV3GateCard(input: V3GateCardInput): string {
   } else {
     elements.push({
       tag: 'action',
-      actions: options.map((opt) => optionButton(opt, approveOptions, input, nonce)),
+      actions: options.map((opt) => optionButton(opt, approveOptions, input, nonce, locale)),
     });
   }
 
@@ -146,7 +159,7 @@ export function buildV3GateCard(input: V3GateCardInput): string {
     actions: [
       {
         tag: 'button',
-        text: { tag: 'plain_text', content: 'Web 详情（需登录）' },
+        text: { tag: 'plain_text', content: t('workflow.v3.button.web', undefined, locale) },
         type: 'default',
         multi_url: {
           url: webDetailUrl, pc_url: webDetailUrl, android_url: webDetailUrl, ios_url: webDetailUrl,
@@ -178,11 +191,12 @@ function optionButton(
   approveOptions: string[],
   input: V3GateCardInput,
   nonce: string,
+  locale: Locale,
 ): Record<string, unknown> {
   const approved = approveOptions.includes(selected);
   const label =
-    selected === 'approve' ? '✅ 通过'
-    : selected === 'reject' ? '❌ 拒绝'
+    selected === 'approve' ? t('workflow.v3.gate.button.approve', undefined, locale)
+    : selected === 'reject' ? t('workflow.v3.gate.button.reject', undefined, locale)
     : selected;
   return {
     tag: 'button',
@@ -199,17 +213,13 @@ function optionButton(
   };
 }
 
-function resolutionPrefix(kind: V3GateResolutionKind): string {
-  return kind === 'approved' ? '已通过' : '已拒绝';
-}
-
 function titleText(nodeId: string): string {
   return `humanGate · ${nodeId}`;
 }
 
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
-  return `${s.slice(0, max)}…（截断，完整见 Web 详情）`;
+  return `${s.slice(0, max)}…`;
 }
 
 function short(s: string, max: number): string {

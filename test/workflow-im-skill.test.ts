@@ -4,7 +4,10 @@ import {
   buildWorkflowGrillPrompt,
   isLegacyTemplateCommand,
   LEGACY_TEMPLATE_RETIRED_MESSAGE,
+  legacyTemplateRetiredMessage,
   parseWorkflowGrillTrigger,
+  workflowDisabledMessage,
+  workflowUsage,
 } from '../src/im/lark/workflow-slash-command.js';
 
 describe('v3 /workflow grill entry', () => {
@@ -36,6 +39,15 @@ describe('v3 /workflow grill entry', () => {
     const prompt = buildWorkflowGrillPrompt('调研三家竞品');
     expect(prompt).toContain('botmux-workflow');
     expect(prompt).toContain('调研三家竞品');
+    expect(prompt).toContain('The user explicitly started an ad-hoc workflow');
+    expect(buildWorkflowGrillPrompt('调研三家竞品', 'zh')).toContain('显式发起了一个即兴 workflow');
+  });
+
+  it('localizes usage and disabled failure guidance', () => {
+    expect(workflowUsage()).toContain('Usage:');
+    expect(workflowUsage('zh')).toContain('用法：');
+    expect(workflowDisabledMessage()).toContain('disabled');
+    expect(workflowDisabledMessage('zh')).toContain('已关闭');
   });
 });
 
@@ -47,8 +59,9 @@ describe('/template retirement tombstone', () => {
   });
 
   it('provides an actionable stable retirement message', () => {
-    expect(LEGACY_TEMPLATE_RETIRED_MESSAGE).toContain('v2 workflow 已下线');
+    expect(LEGACY_TEMPLATE_RETIRED_MESSAGE).toContain('Workflow v2 is retired');
     expect(LEGACY_TEMPLATE_RETIRED_MESSAGE).toContain('botmux template migrate-v3');
     expect(LEGACY_TEMPLATE_RETIRED_MESSAGE).toContain('/workflow run');
+    expect(legacyTemplateRetiredMessage('zh')).toContain('v2 workflow 已下线');
   });
 });

@@ -2,8 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeEach, inject, vi } from 'vitest';
 import { fenceHomeRootedEnv } from './helpers/fence-home-env.js';
+import { setDefaultLocale } from '../src/i18n/index.js';
 
 const inheritedDataDir = process.env.SESSION_DATA_DIR;
+const inheritedNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
 const fileRoot = mkdtempSync(join(inject('unitSessionDataRoot'), 'file-'));
 const dataDir = join(fileRoot, 'data');
 mkdirSync(dataDir);
@@ -20,6 +22,15 @@ const fileHome = join(fileRoot, 'home');
 mkdirSync(fileHome);
 process.env.HOME = fileHome;
 process.env.USERPROFILE = fileHome;
+
+// Legacy component tests intentionally assert the Chinese catalog and render
+// components without booting DashboardUiState.init(). Give those tests an
+// explicit browser language; dedicated i18n tests cover the fresh English
+// fallback and stored/browser precedence.
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: { language: 'zh-CN', languages: ['zh-CN'] },
+});
 
 // Same reasoning as the bun fence: BOTS_CONFIG / PM2_HOME are explicit pointers
 // at a live home that never go through `homedir()`, and a normal Botmux shell has
@@ -74,6 +85,11 @@ process.env.BOTMUX_MOJO_WORKSPACE_ROOT = mojoWorkspaceRoot;
 // at module scope or in beforeAll once, then repair per-test mutations back to it.
 let fileDataDir = '';
 beforeEach(() => {
+  // The historical unit suite was authored against Botmux's former Chinese
+  // product default. Pin that fixture explicitly so changing the production
+  // default does not turn unrelated behavior tests into translation snapshots.
+  // Tests for fresh-install behavior opt into DEFAULT_LOCALE themselves.
+  setDefaultLocale('zh');
   if (!fileDataDir) {
     const candidate = process.env.SESSION_DATA_DIR;
     fileDataDir = candidate && candidate !== inheritedDataDir ? candidate : dataDir;
@@ -85,5 +101,7 @@ afterAll(() => {
   // Keep leaked async work fenced inside the managed root until the worker exits.
   // Restoring the invoking environment here could briefly expose live Botmux data.
   process.env.SESSION_DATA_DIR = dataDir;
+  if (inheritedNavigator) Object.defineProperty(globalThis, 'navigator', inheritedNavigator);
+  else delete (globalThis as { navigator?: Navigator }).navigator;
   rmSync(fileRoot, { recursive: true, force: true });
 });

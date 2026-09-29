@@ -1242,6 +1242,15 @@ function inputPromptInjection(sessionId: string, larkAppId?: string, cliId?: str
   return zeroPromptInjectionForBot(larkAppId, cliId) ? 'none' : 'default';
 }
 
+/** Named conversation style for the opening prompt only. The preset is
+ * materialized at provisioning time, and this marker controls only the concise
+ * conversational guidance kept separate from the business-role block. */
+function conversationPresetFor(larkAppId?: string) {
+  if (!larkAppId) return undefined;
+  try { return getBot(larkAppId).config.conversationPreset; }
+  catch { return undefined; }
+}
+
 /** opening 构建选项。在原有 larkAppId/chatId/whiteboardId 等之外，新增 hook 模式
  *  （#794 后续）所需的 turnId 与 sessionBackendType：turnId 是 opening 轮的权威
  *  turnId（= 发给 worker 的 turnId，最终成为 managedTurnOrigin.turnId），用于
@@ -1309,7 +1318,12 @@ function buildNewTopicBlocks(
   const bare = replyDelivery === 'transcript' && opts?.solo === true;
   const hints = adapter.injectsSessionContext
     ? []
-    : buildBotmuxShellHints(locale, noTransport, replyDelivery);
+    : buildBotmuxShellHints(
+      locale,
+      noTransport,
+      replyDelivery,
+      conversationPresetFor(opts?.larkAppId),
+    );
 
   const routingBlock = hints.length > 0
     ? `<botmux_routing>\n${hints.join('\n')}\n</botmux_routing>`

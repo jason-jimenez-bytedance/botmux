@@ -26,6 +26,7 @@ const INPUT = {
   iteration: 3,
   maxIterations: 3,
   detail: 'result.passed=false (iteration 3/3)',
+  locale: 'zh' as const,
 };
 
 describe('buildV3LoopGrantCard', () => {

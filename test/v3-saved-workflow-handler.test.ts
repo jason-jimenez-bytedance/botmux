@@ -109,6 +109,28 @@ const EXECUTION_BASE = {
 };
 
 describe('Saved Workflow execution seam', () => {
+  it('renders English success and failure paths when requested', async () => {
+    const listDeps = executionDeps({
+      listVisible: vi.fn().mockResolvedValue({ entries: [] }),
+    });
+    const listed = await executeV3SavedWorkflowCommand({
+      ...EXECUTION_BASE,
+      locale: 'en',
+      command: { kind: 'list' },
+    }, listDeps);
+    expect(listed.message).toContain('There are no Saved Workflows yet');
+    expect(listed.message).not.toMatch(/[\u3400-\u9fff]/u);
+
+    const failed = await executeV3SavedWorkflowCommand({
+      ...EXECUTION_BASE,
+      locale: 'en',
+      command: { kind: 'run', ref: 'Missing', rawParams: {} },
+    }, executionDeps({ instantiate: vi.fn().mockRejectedValue(new Error('not found')) }));
+    expect(failed.message).toContain('Saved Workflow command failed: not found');
+    expect(failed.message).toContain('/workflow new run ...');
+    expect(failed.message).not.toMatch(/[\u3400-\u9fff]/u);
+  });
+
   it('shows only a sanitized definition summary without source-run provenance', async () => {
     const deps = executionDeps({
       loadVisible: vi.fn().mockResolvedValue({

@@ -3,6 +3,7 @@ export type DashboardLocale = 'zh' | 'en';
 type DashboardMessages = Record<string, string>;
 
 export const DASHBOARD_LOCALE_STORAGE_KEY = 'botmux.dashboard.locale';
+export const DEFAULT_DASHBOARD_LOCALE: DashboardLocale = 'en';
 
 const zh = {
   'app.name': 'botmux',
@@ -4735,7 +4736,7 @@ const en: Record<keyof typeof zh, string> = {
   'schedules.form.nextRun': 'Next run',
   'schedules.form.errEmpty': 'Enter a schedule',
   'schedules.form.errCron': 'Invalid cron expression',
-  'schedules.form.errFormat': 'Unrecognized format — use cron / 30m / every 2h / 每日9:00',
+  'schedules.form.errFormat': 'Unrecognized format — use cron / 30m / every 2h / daily at 09:00',
   'schedules.form.errNameRequired': 'Name is required',
   'schedules.form.errPromptRequired': 'Prompt is required',
   'schedules.form.errChatRequired': 'Select a target group',
@@ -4980,7 +4981,7 @@ const en: Record<keyof typeof zh, string> = {
   'settings.scheduleTimeZoneHost': 'Follow host ({host})',
   'settings.scheduleTimeZoneHelp': 'Timezone for scheduled-task firing and display. Empty follows host zone ({host}); effective: {effective}.',
   'settings.sessionCleanupEnable': 'Auto-clean idle sessions on a schedule',
-  'settings.sessionCleanupEnableHelp': 'Off by default. When on, the dashboard process periodically closes sessions that have been idle longer than the threshold — the exact same candidate selection and close logic as the manual「清理空闲」button on the sessions page, just run unattended. Only genuinely idle sessions are closed (status idle/dormant, no TUI prompt / not locked / no pending repo / no attention, and last message older than the threshold), so a running session is never closed. Takes effect immediately, no restart needed.',
+  'settings.sessionCleanupEnableHelp': 'Off by default. When on, the dashboard process periodically closes sessions that have been idle longer than the threshold — the exact same candidate selection and close logic as the manual “Clean idle sessions” button on the sessions page, just run unattended. Only genuinely idle sessions are closed (status idle/dormant, no TUI prompt / not locked / no pending repo / no attention, and last message older than the threshold), so a running session is never closed. Takes effect immediately, no restart needed.',
   'settings.sessionCleanupOlderThan': 'Idle threshold',
   'settings.sessionCleanupOlderThanHelp': 'A session is cleaned only when idle and its last message is older than this. Same as the manual button — 24 hours / 72 hours / 7 days only.',
   'settings.sessionCleanupInterval': 'Check interval (minutes)',
@@ -6465,12 +6466,12 @@ export function detectDashboardLocale(languages: readonly string[] = []): Dashbo
     const normalized = normalizeDashboardLocale(lang);
     if (normalized) return normalized;
   }
-  return 'zh';
+  return DEFAULT_DASHBOARD_LOCALE;
 }
 
 export function createDashboardTranslator(locale: DashboardLocale): (key: string, params?: Record<string, string | number>) => string {
   return (key, params) => {
-    const template = dictionaries[locale][key] ?? dictionaries.zh[key] ?? key;
+    const template = dictionaries[locale][key] ?? dictionaries[DEFAULT_DASHBOARD_LOCALE][key] ?? key;
     if (!params) return template;
     return template.replace(/\{(\w+)\}/g, (_, name) => {
       const value = params[name];

@@ -43,10 +43,10 @@ function runCli(args: string[]): { status: number; stdout: string; stderr: strin
 describe('botmux role switch (角色切换命令)', () => {
   it('根帮助收录 role switch 且不再出现 cd 作为角色切换命令', () => {
     const { stdout } = runCli(['--help']);
-    expect(stdout).toContain('role switch <目录>');
+    expect(stdout).toContain('role switch <directory>');
     // cd 别名已移除：帮助里不应再把 cd 当作角色切换入口。
-    expect(stdout).not.toContain('cd <目录>');
-    expect(stdout).not.toContain('role switch 的别名');
+    expect(stdout).not.toContain('cd <directory>');
+    expect(stdout).not.toContain('alias for role switch');
   });
 
   it('role switch 缺目录 → 用法提示带 "role switch" 命令名', () => {

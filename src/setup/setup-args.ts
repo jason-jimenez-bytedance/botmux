@@ -16,7 +16,9 @@ import {
 } from './bot-config-editor.js';
 import { CLI_SELECT_OPTIONS, CLI_SELECTION_ALIASES, resolveCliSelection } from './cli-selection.js';
 import type { CliRuntimeConfig } from '../adapters/cli/runtime.js';
+import { DEFAULT_LOCALE } from '../i18n/index.js';
 import { isLocale, type Locale } from '../i18n/types.js';
+import { conversationPresetValues } from '../core/conversation-preset.js';
 
 export interface SetupLocaleArgs {
   argv: string[];
@@ -76,6 +78,8 @@ export interface SetupBotFlags {
   showInTeam?: string;
   /** 仅 add：feishu | lark。 */
   brand?: string;
+  /** Named one-shot behavior preset. Currently: workbench. */
+  conversationPreset?: string;
 }
 
 export type SetupCommand =
@@ -115,6 +119,7 @@ const BOT_FIELD_FLAGS: Record<string, keyof SetupBotFlags> = {
   '--allowed-chat-groups': 'allowedChatGroups',
   '--show-in-team': 'showInTeam',
   '--brand': 'brand',
+  '--conversation-preset': 'conversationPreset',
 };
 
 export const SETUP_CLI_USAGE = `botmux setup — 脚本化（非 TUI）用法
@@ -176,6 +181,7 @@ export const SETUP_CLI_USAGE = `botmux setup — 脚本化（非 TUI）用法
   --allowed-chat-groups <g>  可对话群 chat_id（oc_xxx，逗号分隔）
   --show-in-team <bool>      平台团队页是否展示（默认 true）
   --brand <feishu|lark>      租户类型（仅 add）
+  --conversation-preset <p>  新建时应用命名会话预设（当前支持 workbench）
 
 通用选项：
   --lang <en|zh>             setup 开始前设置并保存机器级语言
@@ -251,6 +257,7 @@ Field options (shared by add/edit; omitted edit fields stay unchanged):
   --allowed-chat-groups <g>  Allowed chat IDs (oc_xxx, comma-separated)
   --show-in-team <bool>      Show on the platform team page (default: true)
   --brand <feishu|lark>      Tenant brand (add only)
+  --conversation-preset <p> Apply a named conversation preset on creation (workbench)
 
 Common options:
   --lang <en|zh>             Set and persist the machine-wide language before setup
@@ -263,7 +270,7 @@ Common options:
   --no-open-platform-auto    Skip automatic permission/publish configuration
 `;
 
-export function setupCliUsage(locale: Locale = 'zh'): string {
+export function setupCliUsage(locale: Locale = DEFAULT_LOCALE): string {
   return locale === 'en' ? SETUP_CLI_USAGE_EN : SETUP_CLI_USAGE;
 }
 
@@ -358,7 +365,7 @@ function isSettingWrapperCli(raw: string | undefined): boolean {
 }
 
 /** 解析 `botmux setup` 的脚本化子命令 argv。非法输入抛 Error（message 面向用户）。 */
-export function parseSetupCommand(argv: string[], locale: Locale = 'zh'): SetupCommand {
+export function parseSetupCommand(argv: string[], locale: Locale = DEFAULT_LOCALE): SetupCommand {
   const [action, ...rest] = argv;
   if (action === 'help' || action === '--help' || action === '-h') return { action: 'help' };
 
@@ -442,7 +449,7 @@ export function parseSetupCommand(argv: string[], locale: Locale = 'zh'): SetupC
  * add flags → 可落盘 bot 对象（纯映射，不做目录存在性 / 凭证校验）。
  * 必填缺失、CLI 选择键非法、owner 缺失等一律抛 Error。
  */
-export function buildBotFromAddFlags(flags: SetupBotFlags, locale: Locale = 'zh'): Record<string, any> {
+export function buildBotFromAddFlags(flags: SetupBotFlags, locale: Locale = DEFAULT_LOCALE): Record<string, any> {
   const missing: string[] = [];
   if (!flags.appId?.trim()) missing.push('--app-id');
   if (!flags.appSecret?.trim()) missing.push('--app-secret');
@@ -452,6 +459,14 @@ export function buildBotFromAddFlags(flags: SetupBotFlags, locale: Locale = 'zh'
   const brand = (flags.brand ?? 'feishu').trim().toLowerCase();
   if (brand !== 'feishu' && brand !== 'lark') {
     throw new Error(localized(locale, `--brand 必须是 feishu 或 lark: ${flags.brand}`, `--brand must be feishu or lark: ${flags.brand}`));
+  }
+  const preset = flags.conversationPreset === undefined
+    ? undefined
+    : conversationPresetValues(flags.conversationPreset.trim().toLowerCase());
+  if (flags.conversationPreset !== undefined && !preset) {
+    throw new Error(localized(locale,
+      `不支持的会话预设 "${flags.conversationPreset}"。当前支持：workbench。`,
+      `Unsupported conversation preset "${flags.conversationPreset}". Supported: workbench.`));
   }
 
   const sel = resolveCliSelection((flags.cli ?? 'claude-code').trim());
@@ -466,6 +481,7 @@ export function buildBotFromAddFlags(flags: SetupBotFlags, locale: Locale = 'zh'
     ...(sel.cliLaunchMode ? { cliLaunchMode: sel.cliLaunchMode } : {}),
     // 与 TUI 同口径：feishu 不落 brand 字段，bots.json 保持干净。
     ...(brand === 'lark' ? { brand: 'lark' } : {}),
+    ...(preset ?? {}),
   };
 
   const input: BotConfigEditInput = {
@@ -496,12 +512,17 @@ export function buildBotFromAddFlags(flags: SetupBotFlags, locale: Locale = 'zh'
  * edit flags → BotConfigEditInput（纯映射）。--cli 走 resolveCliSelection：
  * 选普通 CLI 会清掉旧 wrapperCli（与 TUI 一致），显式 --wrapper-cli 再覆盖。
  */
-export function editInputFromFlags(flags: SetupBotFlags, locale: Locale = 'zh'): BotConfigEditInput {
+export function editInputFromFlags(flags: SetupBotFlags, locale: Locale = DEFAULT_LOCALE): BotConfigEditInput {
   if (flags.appName !== undefined) {
     throw new Error(localized(locale, '--app-name 仅与 add --create-app 一起使用。', '--app-name is only valid with add --create-app.'));
   }
   if (flags.brand !== undefined) {
     throw new Error(localized(locale, '--brand 仅在 add 时可指定（brand 绑定租户域名，换租户请 remove 后重新 add）。', '--brand is only valid with add (the brand selects the tenant domain; remove and re-add to change tenants).'));
+  }
+  if (flags.conversationPreset !== undefined) {
+    throw new Error(localized(locale,
+      '--conversation-preset 仅在 add 时可指定；现有 Bot 请显式修改对应字段。',
+      '--conversation-preset is only valid with add; edit individual fields explicitly for an existing bot.'));
   }
   const input: BotConfigEditInput = {};
   if (flags.name !== undefined) input.name = flags.name;

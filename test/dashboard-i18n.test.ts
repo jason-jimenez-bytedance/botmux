@@ -3,9 +3,27 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { createDashboardTranslator } from '../src/dashboard/web/i18n.js';
+import {
+  DASHBOARD_LOCALE_STORAGE_KEY,
+  DEFAULT_DASHBOARD_LOCALE,
+  createDashboardTranslator,
+  detectDashboardLocale,
+  readStoredDashboardLocale,
+} from '../src/dashboard/web/i18n.js';
 
 describe('dashboard i18n helpers', () => {
+  it('keeps browser locale separate with stored > browser > English-default precedence', () => {
+    const storage = {
+      getItem: (key: string) => key === DASHBOARD_LOCALE_STORAGE_KEY ? 'zh' : null,
+    } as Storage;
+
+    expect(DEFAULT_DASHBOARD_LOCALE).toBe('en');
+    expect(detectDashboardLocale([])).toBe('en');
+    expect(detectDashboardLocale(['fr-FR', 'zh-CN', 'en-US'])).toBe('zh');
+    expect(readStoredDashboardLocale(storage, ['en-US'])).toBe('zh');
+    expect(readStoredDashboardLocale(undefined, ['en-US'])).toBe('en');
+  });
+
   it('defines every literal tr() key used by the Dashboard UI', () => {
     const root = fileURLToPath(new URL('../src/dashboard/web/', import.meta.url));
     const keys = new Set<string>();

@@ -1,11 +1,10 @@
 /** Lightweight IM parser for the Saved Workflow portion of `/workflow`. */
 
+import { getDefaultLocale, t, type Locale } from '../../i18n/index.js';
+
 const SAFE_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SAFE_PARAM_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const FORBIDDEN_PARAM_NAMES = new Set(['__proto__', 'prototype', 'constructor']);
-
-const AD_HOC_RUN_ESCAPE_HINT =
-  '如果你是想发起一个以“run”开头的即兴目标，请用 `/workflow new run ...`。';
 
 export type V3SavedWorkflowCommand =
   | {
@@ -28,7 +27,10 @@ export type V3SavedWorkflowCommand =
  * invokes this before the grill parser, so reserved verbs can never become an
  * accidental natural-language DAG goal.
  */
-export function parseV3SavedWorkflowCommand(content: string): V3SavedWorkflowCommand | null {
+export function parseV3SavedWorkflowCommand(
+  content: string,
+  locale: Locale = getDefaultLocale(),
+): V3SavedWorkflowCommand | null {
   const match = /^\/workflow(?:\s+([\s\S]*))?$/.exec(content.trim());
   if (!match) return null;
   const tail = (match[1] ?? '').trim();
@@ -40,27 +42,29 @@ export function parseV3SavedWorkflowCommand(content: string): V3SavedWorkflowCom
   if (sub === 'resume') {
     return {
       kind: 'invalid',
-      error: 'v2 workflow resume 已下线；历史 run 已不可变，只能查看离线静态归档。v3 blocked run 请使用 `/workflow retry <runId>`。',
+      error: t('workflow.v3.saved.parse.resume_retired', undefined, locale),
     };
   }
 
   if (sub === 'cancel') {
     if (tokens.length !== 2) {
-      return { kind: 'invalid', error: '用法：/workflow cancel <runId>' };
+      return { kind: 'invalid', error: t('workflow.v3.saved.parse.cancel_usage', undefined, locale) };
     }
     const runId = tokens[1]!;
     if (!SAFE_RUN_ID.test(runId)) {
-      return { kind: 'invalid', error: 'cancel 的 runId 非法' };
+      return { kind: 'invalid', error: t('workflow.v3.saved.parse.cancel_invalid', undefined, locale) };
     }
     return { kind: 'cancel', runId };
   }
 
   if (sub === 'list') {
-    return tokens.length === 1 ? { kind: 'list' } : { kind: 'invalid', error: '/workflow list 不接受其它参数' };
+    return tokens.length === 1
+      ? { kind: 'list' }
+      : { kind: 'invalid', error: t('workflow.v3.saved.parse.list_args', undefined, locale) };
   }
   if (sub === 'show') {
     const ref = tokens.slice(1).join(' ').trim();
-    if (!ref) return { kind: 'invalid', error: '用法：/workflow show <名称或 workflowId>' };
+    if (!ref) return { kind: 'invalid', error: t('workflow.v3.saved.parse.show_usage', undefined, locale) };
     return { kind: 'show', ref };
   }
   if (sub === 'save') {
@@ -69,14 +73,14 @@ export function parseV3SavedWorkflowCommand(content: string): V3SavedWorkflowCom
     // `/workflow save --ack-unsafe` retries the latest owned run.
     const source = firstSaveArg && !firstSaveArg.startsWith('--') ? firstSaveArg : 'last';
     if (source !== 'last' && !SAFE_RUN_ID.test(source)) {
-      return { kind: 'invalid', error: 'save 的 runId 非法' };
+      return { kind: 'invalid', error: t('workflow.v3.saved.parse.save_run_invalid', undefined, locale) };
     }
     const rest = tokens.slice(source === 'last' && firstSaveArg?.startsWith('--') ? 1 : 2);
     const supportedFlags = new Set(['--global', '--ack-unsafe', '--distill']);
     const malformedDistill = rest.find((token) =>
       token === '--distil' || token.startsWith('--distill='));
     if (malformedDistill) {
-      return { kind: 'invalid', error: `save 不支持参数：${malformedDistill}` };
+      return { kind: 'invalid', error: t('workflow.v3.saved.parse.save_unsupported', { arg: malformedDistill }, locale) };
     }
     const global = rest.includes('--global');
     const acknowledgeUnsafeLiterals = rest.includes('--ack-unsafe');
@@ -87,21 +91,21 @@ export function parseV3SavedWorkflowCommand(content: string): V3SavedWorkflowCom
     // so a typo can never silently alter the requested operation.
     const unknownFlag = rest.find((token) => token.startsWith('--') && !supportedFlags.has(token));
     if (distill && unknownFlag) {
-      return { kind: 'invalid', error: `save 不支持参数：${unknownFlag}` };
+      return { kind: 'invalid', error: t('workflow.v3.saved.parse.save_unsupported', { arg: unknownFlag }, locale) };
     }
     const nameTokens = rest.filter((token) => !supportedFlags.has(token));
     const displayName = nameTokens.join(' ').trim();
     if (distill && !displayName) {
       return {
         kind: 'invalid',
-        error: '参数蒸馏必须显式指定名称：/workflow save [last|runId] <名称> --distill',
+        error: t('workflow.v3.saved.parse.distill_name', undefined, locale),
       };
     }
     if (distill && global) {
-      return { kind: 'invalid', error: '参数蒸馏 P0 只支持保存到本群，不能同时使用 --global' };
+      return { kind: 'invalid', error: t('workflow.v3.saved.parse.distill_scope', undefined, locale) };
     }
     if (distill && acknowledgeUnsafeLiterals) {
-      return { kind: 'invalid', error: '参数蒸馏不接受 --ack-unsafe；疑似敏感内容会直接拒绝固化' };
+      return { kind: 'invalid', error: t('workflow.v3.saved.parse.distill_ack', undefined, locale) };
     }
     return {
       kind: 'save',
@@ -115,7 +119,7 @@ export function parseV3SavedWorkflowCommand(content: string): V3SavedWorkflowCom
 
   const runTokens = tokenizeWorkflowRunTail(tail.slice(tokens[0]!.length).trim());
   if (!runTokens) {
-    return { kind: 'invalid', error: 'run 参数引号未闭合；多词值请写成 key="multi word"' };
+    return { kind: 'invalid', error: t('workflow.v3.saved.parse.run_quote', undefined, locale) };
   }
   const firstParamIndex = runTokens.findIndex((token) => token.includes('='));
   const refTokens = firstParamIndex === -1 ? runTokens : runTokens.slice(0, firstParamIndex);
@@ -123,7 +127,7 @@ export function parseV3SavedWorkflowCommand(content: string): V3SavedWorkflowCom
   if (!ref) {
     return {
       kind: 'invalid',
-      error: `用法：/workflow run <名称或 workflowId> [key=value ...]。${AD_HOC_RUN_ESCAPE_HINT}`,
+      error: `${t('workflow.v3.saved.parse.run_usage', undefined, locale)} ${v3SavedWorkflowAdHocRunEscapeHint(locale)}`,
     };
   }
   const rawParams = Object.create(null) as Record<string, string>;
@@ -133,15 +137,15 @@ export function parseV3SavedWorkflowCommand(content: string): V3SavedWorkflowCom
     if (eq <= 0) {
       return {
         kind: 'invalid',
-        error: `参数必须是 key=value：${token}。${AD_HOC_RUN_ESCAPE_HINT}`,
+        error: `${t('workflow.v3.saved.parse.param_format', { token }, locale)} ${v3SavedWorkflowAdHocRunEscapeHint(locale)}`,
       };
     }
     const key = token.slice(0, eq);
     if (!SAFE_PARAM_NAME.test(key) || FORBIDDEN_PARAM_NAMES.has(key)) {
-      return { kind: 'invalid', error: `参数名非法：${key}` };
+      return { kind: 'invalid', error: t('workflow.v3.saved.parse.param_name', { key }, locale) };
     }
     if (Object.prototype.hasOwnProperty.call(rawParams, key)) {
-      return { kind: 'invalid', error: `参数重复：${key}` };
+      return { kind: 'invalid', error: t('workflow.v3.saved.parse.param_duplicate', { key }, locale) };
     }
     rawParams[key] = token.slice(eq + 1);
   }
@@ -183,21 +187,12 @@ function tokenizeWorkflowRunTail(value: string): string[] | undefined {
   return tokens;
 }
 
-export function v3SavedWorkflowUsage(): string {
-  return [
-    'Saved Workflow：',
-    '/workflow save [last|runId] [名称] [--global（当前 Bot 全局）] [--ack-unsafe]',
-    '/workflow save [last|runId] <名称> --distill（参数化后保存到本群）',
-    '/workflow run <名称或 workflowId> [key=value ...]（多词值可用 key="multi word"）',
-    '/workflow cancel <runId>',
-    '/workflow list',
-    '/workflow show <名称或 workflowId>',
-    '若即兴目标本身以 run 开头，请使用 /workflow new run ...',
-  ].join('\n');
+export function v3SavedWorkflowUsage(locale: Locale = getDefaultLocale()): string {
+  return t('workflow.v3.saved.usage', undefined, locale);
 }
 
 /** Actionable hint shared by the IM execution adapter when a multi-word
  * `run ...` lookup fails and the user may have intended an ad-hoc goal. */
-export function v3SavedWorkflowAdHocRunEscapeHint(): string {
-  return AD_HOC_RUN_ESCAPE_HINT;
+export function v3SavedWorkflowAdHocRunEscapeHint(locale: Locale = getDefaultLocale()): string {
+  return t('workflow.v3.saved.ad_hoc_hint', undefined, locale);
 }

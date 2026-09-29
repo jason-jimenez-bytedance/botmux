@@ -23,6 +23,7 @@ import {
 } from '../../workflows/v3/grill-state.js';
 import { readWait } from '../../workflows/v3/human-gate.js';
 import { isValidRunId, isValidWaitId } from '../../workflows/v3/ops-projection.js';
+import { getDefaultLocale, localeForBot, t } from '../../i18n/index.js';
 
 export function isV3GateAction(action: unknown): boolean {
   return action === V3_GATE_APPROVE_ACTION || action === V3_GATE_REJECT_ACTION;
@@ -55,21 +56,22 @@ export async function handleV3GateAction(
   // `runDir/waits/<waitId>.json` (resolveV3GateClick → human-gate), and the
   // reproducible non-secret nonce can't stop a `../..` waitId on its own.
   if (!isValidRunId(value.runId)) {
-    return { toast: { type: 'warning', content: 'gate 已失效（非法 run）' } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.invalid_run', undefined, getDefaultLocale()) } };
   }
   if (typeof value.waitId !== 'string' || !isValidWaitId(value.waitId)) {
-    return { toast: { type: 'warning', content: 'gate 已失效（非法 wait）' } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.invalid_wait', undefined, getDefaultLocale()) } };
   }
   // Nonce check (codex medium): the card carries a stable nonce; a value whose
   // nonce doesn't match the run/wait pair is a tampered/foreign card → stale.
   if (value.nonce !== v3GateCardNonce(value.runId, value.waitId)) {
-    return { toast: { type: 'warning', content: 'gate 卡已失效（nonce 不匹配）' } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.stale_card', undefined, getDefaultLocale()) } };
   }
   const runDir = join(baseDir, value.runId);
   const binding = readV3RunChatBinding(runDir);
+  const locale = localeForBot(binding?.larkAppId);
 
   if (deps.canResolve && !deps.canResolve(binding, operatorOpenId)) {
-    return { toast: { type: 'warning', content: '你没有权限审批这个 gate' } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.unauthorized_gate', undefined, locale) } };
   }
 
   const selected = value.selected ?? (value.action === V3_GATE_APPROVE_ACTION ? 'approve' : 'reject');
@@ -88,7 +90,10 @@ export async function handleV3GateAction(
     return {
       toast: {
         type: 'error',
-        content: `处理失败，请重试：${err instanceof Error ? err.message : String(err)}`,
+        content: t('workflow.v3.toast.action_failed', {
+          action: t('workflow.v3.gate.approval', undefined, locale),
+          error: err instanceof Error ? err.message : String(err),
+        }, locale),
       },
     };
   }
@@ -97,7 +102,11 @@ export async function handleV3GateAction(
     return {
       toast: {
         type: 'warning',
-        content: outcome.reason === 'terminal' ? '该 run 已结束，gate 失效' : 'gate 已失效',
+        content: t(
+          outcome.reason === 'terminal' ? 'workflow.v3.toast.run_finished' : 'workflow.v3.toast.action_expired',
+          undefined,
+          locale,
+        ),
       },
     };
   }
@@ -112,7 +121,11 @@ export async function handleV3GateAction(
     return {
       toast: {
         type: 'info',
-        content: `已是「${outcome.status === 'approved' ? '通过' : '拒绝'}」状态`,
+        content: t('workflow.v3.toast.already_settled', {
+          status: t(outcome.status === 'approved'
+            ? 'workflow.v3.toast.status_approved'
+            : 'workflow.v3.toast.status_rejected', undefined, locale),
+        }, locale),
       },
     };
   }
@@ -120,7 +133,7 @@ export async function handleV3GateAction(
     return {
       toast: {
         type: 'warning',
-        content: '你不在这个 gate 的审批人名单中',
+        content: t('workflow.v3.toast.not_approver', undefined, locale),
       },
     };
   }
@@ -136,6 +149,7 @@ export async function handleV3GateAction(
     prompt,
     hostApproval,
     resolution: { kind: outcome.resolution, by: operatorOpenId, selected },
+    locale,
   });
   return JSON.parse(frozen);
 }

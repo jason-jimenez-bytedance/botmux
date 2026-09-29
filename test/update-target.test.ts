@@ -167,23 +167,23 @@ describe('fetchDistTagVersion and fetchLatestVersion', () => {
     expect(version).toBe('3.21.0-canary.4');
   });
 
-  it('fetchLatestVersion resolves latest dist-tag', async () => {
+  it('fetchLatestVersion resolves the fork latest release', async () => {
     let requestedUrl = '';
     const mockFetch = (async (url: string) => {
       requestedUrl = url;
       return {
         ok: true,
         status: 200,
-        json: async () => ({ version: '3.29.0' }),
+        json: async () => ({ tag_name: 'v3.29.0' }),
       };
     }) as unknown as typeof fetch;
 
     const version = await fetchLatestVersion({
       fetchImpl: mockFetch,
-      registry: 'https://registry.npmjs.org/',
+      approvedVersion: null,
     });
     expect(version).toBe('3.29.0');
-    expect(requestedUrl).toBe('https://registry.npmjs.org/botmux/latest');
+    expect(requestedUrl).toBe('https://api.github.com/repos/jason-jimenez-bytedance/botmux/releases/latest');
   });
 
   it('returns null on 404 or network failure', async () => {

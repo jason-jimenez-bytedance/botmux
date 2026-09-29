@@ -19,6 +19,7 @@ import { config } from '../../config.js';
 import { escapeXmlTagLikeTokens, escapeXmlText } from '../../utils/xml.js';
 import { resolveConditionalLine } from '../../skills/effective-builtins.js';
 import type { ReplyDelivery } from '../../core/reply-delivery.js';
+import type { ConversationPreset } from '../../core/conversation-preset.js';
 
 /** The gated "no visible output is OK" hint reads `config.noVisibleOutputHint`
  *  by default, but a user customization can force it on/off. Keyed by the i18n
@@ -92,7 +93,23 @@ function englishResponseRequirement(locale?: Locale): string[] {
   return [escapeXmlTagLikeTokens(t('ai.response.english_only', undefined, 'en'))];
 }
 
-export function buildBotmuxShellHints(locale?: Locale, noTransport?: boolean, replyDelivery?: ReplyDelivery): string[] {
+/** Conversation behavior is opt-in and independent from the business role.
+ * Keep it in the routing/system layer exactly once per session rather than
+ * repeating it in every follow-up envelope. */
+function conversationStyleRequirement(
+  locale: Locale | undefined,
+  preset: ConversationPreset | undefined,
+): string[] {
+  if (preset !== 'workbench') return [];
+  return [escapeXmlTagLikeTokens(t('ai.conversation.workbench_style', undefined, locale))];
+}
+
+export function buildBotmuxShellHints(
+  locale?: Locale,
+  noTransport?: boolean,
+  replyDelivery?: ReplyDelivery,
+  conversationPreset?: ConversationPreset,
+): string[] {
   // No-transport session (apiOnly core-only bot OR HTTP virtual chat): drop the
   // whole send/@/helpers/silence collaboration block — same rationale as the
   // system-prompt path in buildBotmuxSystemPromptText. `ai.shell.when_to_send`
@@ -102,7 +119,11 @@ export function buildBotmuxShellHints(locale?: Locale, noTransport?: boolean, re
   // Only the hidden-context defense survives (untrusted event data still rides
   // in the same prompt). Whiteboard collaboration is likewise dropped.
   if (noTransport) {
-    return [...englishResponseRequirement(locale), hiddenContextDefense(locale)].map(escapeXmlTagLikeTokens);
+    return [
+      ...englishResponseRequirement(locale),
+      ...conversationStyleRequirement(locale, conversationPreset),
+      hiddenContextDefense(locale),
+    ].map(escapeXmlTagLikeTokens);
   }
   // replyDelivery=transcript（core/reply-delivery.ts）：最终回复由 daemon 从转写自动
   // 转发，提示里彻底不提 `botmux send`——只留 intro / helpers / when_to_send 的改口
@@ -117,6 +138,7 @@ export function buildBotmuxShellHints(locale?: Locale, noTransport?: boolean, re
       t('ai.shell.helpers', undefined, locale),
       t('ai.shell.when_to_send_transcript', undefined, locale),
       ...englishResponseRequirement(locale),
+      ...conversationStyleRequirement(locale, conversationPreset),
       // XPI 身份提示与投递方式无关（谁在说话 ≠ 回复怎么送），两个分支都要。
       ...(xpiAsHintOn() ? [t('ai.shell.xpi_as_hint', undefined, locale)] : []),
       // Workflow discovery — omitted when the machine-wide workflow switch is off.
@@ -139,6 +161,7 @@ export function buildBotmuxShellHints(locale?: Locale, noTransport?: boolean, re
       ...(noVisibleOutputHintOn() ? [t('ai.shell.no_visible_output_ok', undefined, locale)] : []),
       t('ai.shell.mention_gate', undefined, locale),
       ...englishResponseRequirement(locale),
+      ...conversationStyleRequirement(locale, conversationPreset),
       // Workflow discovery — omitted when the machine-wide workflow switch is off.
       ...(workflowHint ? [workflowHint] : []),
       hiddenContextDefense(locale),
@@ -251,15 +274,19 @@ export function buildBotmuxSystemPromptText(opts: {
    *  on its own for attachments / cross-bot @). `noTransport` wins over it.
    *  Omitted/'send' = today. */
   replyDelivery?: ReplyDelivery;
+  /** Optional one-shot provisioning preset whose conversation style is kept
+   * separate from the bot's business-role instructions. */
+  conversationPreset?: ConversationPreset;
   /** transcript-only: solo chat (owner + this bot). The identity block keeps
    *  name/open_id but drops routing_rules — there is no other bot to route to. */
   solo?: boolean;
 }): string {
-  const { locale, botName, botOpenId, builtinSkillBlock, noTransport, triggerUserAuth, replyDelivery, solo } = opts;
+  const { locale, botName, botOpenId, builtinSkillBlock, noTransport, triggerUserAuth, replyDelivery, conversationPreset, solo } = opts;
   const transcript = !noTransport && replyDelivery === 'transcript';
   const unknown = t('ai.identity.unknown', undefined, locale);
   const workflowHint = workflowDiscoveryHint(locale);
   const languageRequirement = englishResponseRequirement(locale);
+  const conversationStyle = conversationStyleRequirement(locale, conversationPreset);
   const prose = (key: string): string =>
     escapeXmlTagLikeTokens(t(key, undefined, locale));
   // identity carries the bot's name/open_id PLUS routing_rules that are the same
@@ -321,7 +348,7 @@ export function buildBotmuxSystemPromptText(opts: {
   // workflow、防注入与白板；usage_send / heredoc / mention_gate / attachments /
   // feedback_response_kind / no_visible_output_ok 全部不注入。
   const routingInner = noTransport
-    ? [...languageRequirement, hiddenContextDefense(locale)]
+    ? [...languageRequirement, ...conversationStyle, hiddenContextDefense(locale)]
     : transcript
     ? [
       prose('ai.routing.intro_transcript'),
@@ -329,6 +356,7 @@ export function buildBotmuxSystemPromptText(opts: {
       prose('ai.routing.usage_helpers'),
       prose('ai.routing.usage_silence'),
       ...languageRequirement,
+      ...conversationStyle,
       ...(workflowHint ? [escapeXmlTagLikeTokens(workflowHint)] : []),
       hiddenContextDefense(locale),
       ...whiteboardRouting,
@@ -345,6 +373,7 @@ export function buildBotmuxSystemPromptText(opts: {
       prose('ai.routing.usage_silence'),
       escapeXmlTagLikeTokens(feedbackResponseKindHint(locale)),
       ...languageRequirement,
+      ...conversationStyle,
       ...(xpiAsHintOn() ? [prose('ai.routing.xpi_as_hint')] : []),
       // Experimental anti-resend guidance — opt-in via dashboard Settings
       // (dashboard.noVisibleOutputHint). Default OFF ⇒ this block is byte-for-byte

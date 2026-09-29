@@ -12339,6 +12339,7 @@ export function forkWorker(
     // 写在 ds 上（resolveSoloSessionForTurn），缺省非 solo。
     replyDelivery: effectiveReplyDelivery(botCfg.larkAppId, agentCfg.cliId, sessionPromptInjection(ds)),
     promptInjection: sessionPromptInjection(ds),
+    conversationPreset: botCfg.conversationPreset,
     solo: ds.soloSession === true,
     feedback: feedbackPolicy,
     terminalCardEpoch: ds.session.terminalCardEpoch,

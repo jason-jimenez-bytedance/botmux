@@ -184,6 +184,8 @@ export interface CliAdapter {
     replyDelivery?: 'send' | 'transcript';
     /** Disable all Botmux-owned prompt and skill injection for this spawn. */
     promptInjection?: 'default' | 'none';
+    /** Named, opt-in conversation style frozen from the bot config at spawn. */
+    conversationPreset?: import('../../core/conversation-preset.js').ConversationPreset;
     /** transcript-only: this session is a solo chat (owner + this bot). Drops
      *  the identity routing_rules (no other bot to route to). Ignored for
      *  'send'. */

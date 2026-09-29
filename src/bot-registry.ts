@@ -69,6 +69,7 @@ import {
   type QuotaFallbackBotConfig,
 } from './services/quota-fallback.js';
 import { normalizeCardActionAckTimeoutMs } from './core/card-action-ack.js';
+import { normalizeConversationPreset, type ConversationPreset } from './core/conversation-preset.js';
 import type {
   VcMeetingConsumerAgentConfig,
   VcMeetingConsumerConfig,
@@ -1404,6 +1405,12 @@ export interface SessionGroupConfig {
 export interface BotConfig {
   larkAppId: string;
   larkAppSecret: string;
+  /**
+   * Named one-shot provisioning preset. Its settings are materialized when the
+   * bot is created; this marker is provenance only, so later explicit edits win
+   * and a future preset revision cannot silently change an existing bot.
+   */
+  conversationPreset?: ConversationPreset;
   /**
    * Core-only / headless 模式：该 bot 纯 HTTP 控制 API 驱动（trigger →
    * spawn → CLI → trigger-result），**不连接任何飞书**——boot 时跳过
@@ -3695,6 +3702,7 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       // fall back to '' so downstream env plumbing stays a string. Feishu image
       // upload etc. already degrade gracefully on an empty secret.
       larkAppSecret: entry.larkAppSecret ?? '',
+      conversationPreset: normalizeConversationPreset(entry.conversationPreset),
       apiOnly: entry.apiOnly === true || undefined,
       oncallGroup: entry.oncallGroup === undefined ? undefined : normalizeOncallGroupPolicy(entry.oncallGroup),
       feedback: entry.feedback === undefined

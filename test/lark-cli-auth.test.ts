@@ -34,6 +34,7 @@ import {
   __setLarkCliRunnerForTest,
   type LarkCliRunner,
 } from '../src/services/lark-cli-auth.js';
+import { setDefaultLocale } from '../src/i18n/index.js';
 
 const APP_ID = 'cli_aa8021c36af9dcde';
 // Realistic open ids: `ou_` followed by alphanumerics (the token-file name is
@@ -159,6 +160,23 @@ describe('begin / complete device flow', () => {
     expect(readFileSync(join(home, '.local', 'share', 'lark-cli', 'master.key'), 'utf8')).toBe('machine-master-key');
     // App material is copied, but no user token pre-exists.
     expect(hasLarkCliHome(OPEN)).toBe(false);
+  });
+
+  it('uses the resolved English product default when the issuer app has no language', async () => {
+    seedMachine();
+    const machineConfig = join(machineHome, '.lark-cli', 'config.json');
+    const config = JSON.parse(readFileSync(machineConfig, 'utf8'));
+    delete config.apps[0].lang;
+    writeFileSync(machineConfig, JSON.stringify(config));
+    setDefaultLocale('en');
+    __setLarkCliRunnerForTest(async () => ({
+      ok: true, stdout: JSON.stringify({ verification_url: 'u', device_code: 'd' }), stderr: '',
+    }));
+
+    await beginLarkCliLogin(OPEN);
+
+    const seeded = JSON.parse(readFileSync(join(larkCliHomeFor(OPEN), '.lark-cli', 'config.json'), 'utf8'));
+    expect(seeded.apps[0].lang).toBe('en');
   });
 
   it('issues from BOTMUX_LARK_CLI_ISSUER_HOME instead of the operator HOME', async () => {

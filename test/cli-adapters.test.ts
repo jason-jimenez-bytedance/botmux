@@ -250,6 +250,23 @@ describe('claude-code buildArgs', () => {
     expect(args).not.toContain('--session-id');
   });
 
+  it.each([false, true])('keeps the Workbench style on %s resume state without transcript send instructions', (resume) => {
+    const args = adapter.buildArgs({
+      sessionId: 'sess-workbench',
+      resume,
+      locale: 'en',
+      conversationPreset: 'workbench',
+      replyDelivery: 'transcript',
+      solo: true,
+    });
+    const prompt = args[args.indexOf('--append-system-prompt') + 1];
+
+    expect(prompt).toContain('Respond in English by default');
+    expect(prompt).toContain('Conversation style: answer short requests directly');
+    expect(prompt.match(/Conversation style:/g)).toHaveLength(1);
+    expect(prompt).not.toContain('botmux send');
+  });
+
   it('disallows plan mode tools', () => {
     const args = adapter.buildArgs({ sessionId: 's', resume: false });
     const idx = args.indexOf('--disallowed-tools');

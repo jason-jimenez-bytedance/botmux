@@ -44,7 +44,7 @@ describe('botmux update alias', () => {
     // PATH='' makes it abort deterministically at `git status` (ENOENT) right
     // after the banner, so the test never runs a real pull/build/restart.
     expect(upgrade.status).toBe(1);
-    expect(upgrade.stdout).toContain('本地 checkout 更新');
+    expect(upgrade.stdout).toContain('Local checkout update');
     // The core contract: `update` is a pure alias of `upgrade`. Compare the
     // observable CLI output, not the whole spawnSync result — bun adds extra
     // enumerable fields (`resourceUsage`, …) that differ across two invocations.
@@ -56,6 +56,7 @@ describe('botmux update alias', () => {
     const help = runCli('--help');
 
     expect(help.status).toBe(0);
-    expect(help.stdout).toContain('upgrade     升级到最新版本（别名：update）');
+    expect(help.stdout).toContain('update [target]');
+    expect(help.stdout).toContain("this fork's verified GitHub Releases");
   });
 });

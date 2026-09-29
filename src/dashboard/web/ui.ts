@@ -5,6 +5,7 @@ import {
 import {
   DASHBOARD_LOCALE_STORAGE_KEY,
   createDashboardTranslator,
+  detectDashboardLocale,
   readStoredDashboardLocale,
   type DashboardLocale,
 } from './i18n.js';
@@ -28,7 +29,11 @@ import { larkHosts, normalizeBrand } from '../../im/lark/lark-hosts.js';
 type UiListener = () => void;
 
 class DashboardUiState {
-  locale: DashboardLocale = 'zh';
+  // Resolve the browser preference at construction as well as init(). This
+  // avoids a visible flash in the product-default language before persisted
+  // browser settings are loaded, while keeping the browser locale independent
+  // from the daemon/model locale.
+  locale: DashboardLocale = detectDashboardLocale(navigatorLanguages());
   themeMode: ThemeMode = 'system';
   resolvedTheme: ResolvedTheme = 'light';
   skin: SkinId = 'default';

@@ -208,6 +208,7 @@ export function createPiAdapter(
       noTransport,
       triggerUserAuth,
       replyDelivery,
+      conversationPreset,
       solo,
       skillPluginDir,
       workingDir,
@@ -225,6 +226,7 @@ export function createPiAdapter(
         noTransport,
         triggerUserAuth,
         replyDelivery: effectiveReplyDelivery,
+        conversationPreset,
         solo,
       });
 

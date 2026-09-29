@@ -55,7 +55,7 @@ async function fresh() {
 beforeEach(() => {
   const dir = mkdtempSync(join(tmpdir(), 'botmux-cardvoice-'));
   const cfg = join(dir, 'bots.json');
-  writeFileSync(cfg, JSON.stringify([{ larkAppId: 'h1', larkAppSecret: 's', cliId: 'claude-code' }], null, 2));
+  writeFileSync(cfg, JSON.stringify([{ larkAppId: 'h1', larkAppSecret: 's', cliId: 'claude-code', lang: 'zh' }], null, 2));
   process.env.BOTS_CONFIG = cfg;
   deps.activeSessions = new Map();
 });
@@ -153,7 +153,7 @@ describe('card-handler voice_summary', () => {
     // Bot WITH an allowlist; clicker (ou_clicker) is NOT on it → blocked.
     const dir = mkdtempSync(join(tmpdir(), 'botmux-cardvoice-auth-'));
     const cfg = join(dir, 'bots.json');
-    writeFileSync(cfg, JSON.stringify([{ larkAppId: 'h1', larkAppSecret: 's', cliId: 'claude-code', allowedUsers: ['ou_owner'] }], null, 2));
+    writeFileSync(cfg, JSON.stringify([{ larkAppId: 'h1', larkAppSecret: 's', cliId: 'claude-code', lang: 'zh', allowedUsers: ['ou_owner'] }], null, 2));
     process.env.BOTS_CONFIG = cfg;
     const { types, handler } = await fresh();
     const send = vi.fn();
@@ -171,6 +171,7 @@ describe('card-handler voice_summary', () => {
       larkAppId: 'h1',
       larkAppSecret: 's',
       cliId: 'codex-app',
+      lang: 'zh',
       codexAppCleanInput: true,
     }], null, 2));
     process.env.BOTS_CONFIG = cfg;
@@ -226,6 +227,7 @@ describe('card-handler retry_last_task', () => {
       larkAppId: 'h1',
       larkAppSecret: 's',
       cliId: 'codex-app',
+      lang: 'zh',
       codexAppCleanInput: true,
     }], null, 2));
     process.env.BOTS_CONFIG = cfg;

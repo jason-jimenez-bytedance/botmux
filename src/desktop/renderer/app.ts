@@ -344,11 +344,11 @@ function readStoredLocale(): DesktopLocale {
   const stored = window.localStorage.getItem(desktopLocaleStorageKey);
   if (stored === 'zh' || stored === 'en') return stored;
   const languages = navigator.languages?.length ? navigator.languages : [navigator.language].filter(Boolean);
-  return languages.some(language => language.toLowerCase().startsWith('en')) ? 'en' : 'zh';
+  return languages.some(language => language.toLowerCase().startsWith('zh')) ? 'zh' : 'en';
 }
 
 function t(key: string, params?: Record<string, string | number>): string {
-  const template = messages[currentLocale][key] ?? messages.zh[key] ?? key;
+  const template = messages[currentLocale][key] ?? messages.en[key] ?? key;
   if (!params) return template;
   return template.replace(/\{(\w+)\}/g, (_, name) => {
     const value = params[name];

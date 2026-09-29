@@ -199,16 +199,16 @@ import {
 } from './cli/dashboard-command.js';
 import {
   globalInstallUpdateLockTarget,
-  installLatestBotmuxSync,
   prepareRestartDriverContext,
 } from './core/maintenance.js';
-import {
-  formatGlobalInstallCommand,
-  resolveGlobalInstallPlan,
-  UnsupportedGlobalInstallError,
-} from './utils/global-install.js';
 import { isLocalDevInstall, botmuxCliEntryAt, bakedBinaryVersion, botmuxInstallRoot } from './utils/install-info.js';
 import { currentUpdateStrategy, replaceStandaloneBinary } from './core/binary-self-update.js';
+import {
+  approvedDistributionVersion,
+  BOTMUX_DISTRIBUTION_REPOSITORY,
+  BOTMUX_DISTRIBUTION_SOURCE,
+  normalizeApprovedVersion,
+} from './core/distribution-policy.js';
 import {
   fetchLatestVersion,
   fetchDistTagVersion,
@@ -3332,6 +3332,19 @@ async function cmdStatus(): Promise<void> {
 }
 
 function printUpgradeHelp(): void {
+  if (getDefaultLocale() === 'en') {
+    console.log(`
+Usage:
+  botmux update [target]
+  botmux upgrade [target]
+
+target is optional and defaults to latest. Supported targets are the stable
+latest release, preview channels (canary, beta, rc, next), or an exact semantic
+version such as 3.30.1. This fork resolves release versions and binaries only
+from ${BOTMUX_DISTRIBUTION_REPOSITORY}.
+`.trim());
+    return;
+  }
   console.log(`
 用法:
   botmux update [target]
@@ -3352,9 +3365,13 @@ function printUpgradeHelp(): void {
 }
 
 async function cmdUpgrade(args: string[] = []): Promise<void> {
+  const copy = (zh: string, en: string): string => getDefaultLocale() === 'en' ? en : zh;
   const nonHelpArgs = args.filter(a => a !== '--help' && a !== '-h');
   if (nonHelpArgs.length > 1) {
-    console.error(`❌ 不能同时指定多个升级目标（收到：${nonHelpArgs.join(' ')}）。请只指定一个频道或版本。`);
+    console.error(copy(
+      `❌ 不能同时指定多个升级目标（收到：${nonHelpArgs.join(' ')}）。请只指定一个频道或版本。`,
+      `❌ Multiple update targets were supplied (${nonHelpArgs.join(' ')}). Choose exactly one channel or version.`,
+    ));
     process.exit(2);
   }
   const rawTarget = nonHelpArgs[0]?.trim();
@@ -3364,7 +3381,10 @@ async function cmdUpgrade(args: string[] = []): Promise<void> {
   }
   const target = parseUpdateTarget(rawTarget);
   if (!target) {
-    console.error(`❌ 非法的目标频道或版本格式：“${rawTarget}”。只支持发布频道（latest、canary、beta、rc、next）或语义化版本号（如 3.28.0）。`);
+    console.error(copy(
+      `❌ 非法的目标频道或版本格式：“${rawTarget}”。只支持发布频道（latest、canary、beta、rc、next）或语义化版本号（如 3.28.0）。`,
+      `❌ Invalid update target “${rawTarget}”. Use latest, canary, beta, rc, next, or an exact semantic version such as 3.28.0.`,
+    ));
     process.exit(2);
   }
 
@@ -3373,7 +3393,10 @@ async function cmdUpgrade(args: string[] = []): Promise<void> {
   // install-info.ts 的 isLocalDevInstall 说明）。
   if (isLocalDevInstall()) {
     if (target.isExplicit && target.tag !== 'latest') {
-      console.error(`❌ 当前为本地 git checkout 开发环境，不支持切换到 npm 频道/版本（${target.raw || target.tag}）。\n若需使用发布版本，请通过安装脚本或包管理器全局安装 botmux。`);
+      console.error(copy(
+        `❌ 当前为本地 git checkout 开发环境，不支持切换到发布频道/版本（${target.raw || target.tag}）。\n若需使用发布版本，请通过本 fork 的 install.sh 安装二进制。`,
+        `❌ This is a local Git checkout, so it cannot switch to release target ${target.raw || target.tag}.\nInstall an exact binary release with this fork's install.sh instead.`,
+      ));
       process.exit(1);
     }
     cmdUpgradeLocalDev();
@@ -3385,22 +3408,30 @@ async function cmdUpgrade(args: string[] = []): Promise<void> {
   const strategy = currentUpdateStrategy(botmuxInstallRoot());
   if (strategy.kind === 'self-replace') {
     try {
-      const resolvedVersion = await fetchGithubReleaseVersion(target.tag);
+      const resolvedVersion = !target.isExplicit && target.tag === 'latest'
+        ? await fetchLatestVersion()
+        : await fetchGithubReleaseVersion(target.tag);
       if (!resolvedVersion) {
-        console.error(`❌ 无法获取目标版本（${target.tag}）信息（网络不可达、版本不存在或 registry 异常）。`);
+        console.error(copy(
+          `❌ 无法从 fork GitHub Releases 获取目标版本（${target.tag}）信息（网络不可达或版本不存在）。`,
+          `❌ Could not resolve ${target.tag} from this fork's GitHub Releases (offline or release not found).`,
+        ));
         process.exit(1);
       }
       const current = resolveCurrentVersion();
       const decision = shouldApplySelfUpdate(target, resolvedVersion, current);
       if (!decision.proceed) {
         if (decision.reason === 'already_latest') {
-          console.log(`✅ 已是最新版本（${current}）。`);
+          console.log(copy(`✅ 已是最新版本（${current}）。`, `✅ Already on the latest approved version (${current}).`));
         } else {
-          console.log(`✅ 当前已是版本 ${current}。`);
+          console.log(copy(`✅ 当前已是版本 ${current}。`, `✅ Already on version ${current}.`));
         }
         return;
       }
-      console.log(`🔄 升级中：下载 v${resolvedVersion} 二进制并替换 ${strategy.target}`);
+      console.log(copy(
+        `🔄 升级中：下载 v${resolvedVersion} 二进制并替换 ${strategy.target}`,
+        `🔄 Updating: download verified binary v${resolvedVersion} and replace ${strategy.target}`,
+      ));
       // 握与 dashboard / maintenance 同一把跨进程锁：这条路径是**写同一个文件**，
       // 两个 update 并发跑会互相盖掉临时文件与 rename。锁文件父目录可能还不存在
       // （daemon 从未在本机起过就先跑 update），先建再握，否则 ENOENT 会盖掉真实错误。
@@ -3411,7 +3442,10 @@ async function cmdUpgrade(args: string[] = []): Promise<void> {
         await withFileLock(lockTarget, async () => {
           acquired = true;
           const r = await replaceStandaloneBinary(resolvedVersion, strategy.target);
-          console.log(`✅ 升级完成：${r.asset} → ${r.target}（${current} → ${resolvedVersion}）。运行 botmux restart 以应用更新。`);
+          console.log(copy(
+            `✅ 升级完成：${r.asset} → ${r.target}（${current} → ${resolvedVersion}）。运行 botmux restart 以应用更新。`,
+            `✅ Update complete: ${r.asset} → ${r.target} (${current} → ${resolvedVersion}). Run botmux restart to apply it.`,
+          ));
         }, { maxWaitMs: 2_000 });
       } catch (error) {
         // ⚠️ 三态，不是二态。`withFileLock` 拿不到锁时是**抛异常**不是安静返回，
@@ -3426,33 +3460,34 @@ async function cmdUpgrade(args: string[] = []): Promise<void> {
         // 判类型而不是匹文案：file-lock 的文案被多处按字符串匹配，不能动，但新代码
         // 应该用 FileLockTimeoutError（async/sync 两处语义一致）。
         if (!acquired && error instanceof FileLockTimeoutError) {
-          console.error('❌ 另一个更新正在进行中（dashboard 或定时任务），请稍后重试。');
+          console.error(copy(
+            '❌ 另一个更新正在进行中（dashboard 或定时任务），请稍后重试。',
+            '❌ Another update is already running (Dashboard or scheduled maintenance). Try again shortly.',
+          ));
           process.exit(1);
         }
         throw error; // ②③ 交给外层统一报错，不被友好文案吞掉
       }
     } catch (error) {
-      console.error(`❌ 升级失败：${error instanceof Error ? error.message : error}`);
+      console.error(copy(
+        `❌ 升级失败：${error instanceof Error ? error.message : error}`,
+        `❌ Update failed: ${error instanceof Error ? error.message : error}`,
+      ));
       process.exit(1);
     }
     return;
   }
-  try {
-    if (strategy.kind === 'unsupported') {
-      throw new UnsupportedGlobalInstallError('unknown', process.execPath);
-    }
-    const plan = resolveGlobalInstallPlan(strategy.packageRoot, process.platform, target.spec);
-    console.log(`🔄 升级中：${formatGlobalInstallCommand(plan)}`);
-    installLatestBotmuxSync(plan);
-    console.log('\n✅ 升级完成。运行 botmux restart 以应用更新。');
-  } catch (error) {
-    if (error instanceof UnsupportedGlobalInstallError) {
-      console.error(`❌ 无法安全识别当前安装方式（${error.manager}），请使用原包管理器手动更新 botmux。`);
-    } else {
-      console.error(`❌ 升级失败：${error instanceof Error ? error.message : error}`);
-    }
+  if (strategy.kind === 'package-manager') {
+    console.error(
+      '❌ This downstream is distributed only through its verified GitHub Release binaries. '
+      + 'A package-manager update could replace it with the unrelated upstream npm package. '
+      + 'Reinstall with this fork\'s install.sh, then retry.',
+    );
     process.exit(1);
+    return;
   }
+  console.error('❌ Cannot safely identify this installation. Reinstall using this fork\'s install.sh.');
+  process.exit(1);
 }
 
 /** 在 checkout 目录里同步跑一条命令，stdio 直通；失败抛错。 */
@@ -3474,12 +3509,16 @@ function runInCheckout(cwd: string, command: string, args: string[]): void {
  * 共用 src/utils/local-dev-update.ts，避免两边逻辑漂移。
  */
 function cmdUpgradeLocalDev(): void {
+  const copy = (zh: string, en: string): string => getDefaultLocale() === 'en' ? en : zh;
   const dir = resolveLocalDevCheckoutDir();
   if (!isGitWorktree(dir)) {
-    console.error(`❌ ${dir} 不是 git 工作树，无法用 git pull 更新。请手动更新或改用全局安装。`);
+    console.error(copy(
+      `❌ ${dir} 不是 git 工作树，无法用 git pull 更新。请手动更新或改用 fork 二进制安装。`,
+      `❌ ${dir} is not a Git worktree. Update it manually or install a fork release binary.`,
+    ));
     process.exit(1);
   }
-  console.log(`🔄 本地 checkout 更新：${dir}`);
+  console.log(copy(`🔄 本地 checkout 更新：${dir}`, `🔄 Local checkout update: ${dir}`));
 
   // git 干净检查 + pull + build 全程握同一把跨进程 update 锁（与 dashboard 的
   // /api/update/run 用的是同一个 target），避免 CLI 与 dashboard 同时对同一
@@ -3496,7 +3535,10 @@ function cmdUpgradeLocalDev(): void {
       try {
         status = gitPorcelainStatus(dir);
       } catch (error) {
-        throw new Error(`读取 git 状态失败：${error instanceof Error ? error.message : error}`);
+        throw new Error(copy(
+          `读取 git 状态失败：${error instanceof Error ? error.message : error}`,
+          `Could not read Git status: ${error instanceof Error ? error.message : error}`,
+        ));
       }
       if (status) {
         const err = new Error('dirty') as Error & { dirtyStatus?: string };
@@ -3512,10 +3554,16 @@ function cmdUpgradeLocalDev(): void {
   } catch (error) {
     const dirty = (error as { dirtyStatus?: string }).dirtyStatus;
     if (dirty) {
-      console.error('❌ 工作区有未提交改动，已中止更新（不会自动 stash）。请先提交或清理：');
+      console.error(copy(
+        '❌ 工作区有未提交改动，已中止更新（不会自动 stash）。请先提交或清理：',
+        '❌ The worktree has uncommitted changes. Update was stopped without stashing; commit or clean them first:',
+      ));
       console.error(dirty);
     } else {
-      console.error(`❌ 更新失败：${error instanceof Error ? error.message : error}`);
+      console.error(copy(
+        `❌ 更新失败：${error instanceof Error ? error.message : error}`,
+        `❌ Update failed: ${error instanceof Error ? error.message : error}`,
+      ));
     }
     process.exit(1);
   }
@@ -3524,9 +3572,12 @@ function cmdUpgradeLocalDev(): void {
   try {
     console.log('→ restart daemon');
     runInCheckout(dir, process.execPath, [botmuxCliEntryAt(dir), 'restart']);
-    console.log('\n✅ 本地更新完成，daemon 已从最新代码重启。');
+    console.log(copy('\n✅ 本地更新完成，daemon 已从最新代码重启。', '\n✅ Local update complete; the daemon restarted from the latest checkout.'));
   } catch (error) {
-    console.error(`❌ 重启失败：${error instanceof Error ? error.message : error}`);
+    console.error(copy(
+      `❌ 重启失败：${error instanceof Error ? error.message : error}`,
+      `❌ Restart failed: ${error instanceof Error ? error.message : error}`,
+    ));
     process.exit(1);
   }
 }
@@ -6612,6 +6663,91 @@ const SEND_HELP_BODY = [
 ].join('\n');
 
 function showHelp(): void {
+  if (getDefaultLocale() === 'en') {
+    console.log(`
+botmux v${getVersion()} — Lark/Feishu ↔ AI coding CLI bridge
+
+Core commands:
+  setup [--lang en|zh]       Configure the first bot or add another bot
+  clone <bot> [--name NAME]  Create an app and copy a bot's behavior settings
+  start | stop | restart     Manage the local Botmux fleet
+  status                     Show daemon status
+  logs [--lines N] [--bot BOT] [--no-follow]
+                             Read daemon logs
+  update [target]            Update from this fork's verified GitHub Releases
+  dashboard [current|rotate] Open or rotate the local Dashboard login
+  distribution status       Show release provenance and the approved-version pin
+  distribution pin VERSION  Pin a Workbench-managed host to one reviewed release
+  distribution unpin        Resume following the latest stable fork release
+  lang [en|zh]               Show or set the machine language
+       --bot N               Set only one bot's language
+       --unset               Clear the selected override (falls back to English)
+  model-proxy serve --config <path>
+                             Start the authenticated local model-protocol endpoint
+  device enroll|status|logout
+                             Manage desktop-device credentials on the host terminal
+  actor current --json       Print the verified enterprise user for this Botmux turn
+  auth request [--scope "<scope1 scope2,...>"] [--json]
+                             Create a Lark authorization link for the triggering user
+  auth wait --request-id <id> [--json]
+                             Wait up to five minutes for that authorization
+  mojo-containment list|revoke
+                             Inspect or explicitly revoke auditable Mojo containment
+
+Conversation and session commands:
+  send "message" [--mention <open_id:name>|--mention-back|--no-mention]
+       [--images <path...>] [--image-mode <mode>] [--files <path...>]
+                             Send a Lark reply from the current session
+       image modes: fit_horizontal (default) | medium | small | tiny
+       medium/small/tiny use proportional widths of 1/2, 1/3, and 1/4
+  history                    Read this conversation's message history
+  quoted <message_id>        Read one quoted message and download attachments
+  bots list                  List bots available in the current chat
+  list                       List active sessions
+  resume <id>                Resume a closed session
+  suspend <id|all>           Suspend sessions while preserving their history
+  delete <id|all|stopped>    Close or clean sessions
+  session rename <title>     Rename the current session
+  role switch <directory>    Switch this session to a role under ~/botmux-roles
+  term-link [id]             Send the owner a private writable-terminal link
+  preview <port>             Register this session's local web preview
+  tabs list|add|update|remove|sort
+                             Manage tabs in the current Lark group
+  continuation start|await-user|cancel
+                             Manage bounded TraeX continuation
+  project enable|status|disable
+                             Manage project-group mode
+  schedule list|add|update|remove|pause|resume|run
+                             Manage scheduled tasks
+  skill list|show <name>     Inspect skills available to the current session
+
+Workflow v3:
+  goal run <goal> [--run-id <id>] [--bot <id|name>] [--working-dir <dir>]
+                             Run a headless goal; a run ID safely resumes or replays
+  workflow save [last|runId] [name]
+                             Save a successful run as a chat-scoped workflow
+  workflow run <name|workflowId> [--param key=value ...]
+  workflow list [--json] | show <name|workflowId>
+  workflow new|spec-finalize|approve-spec|revise-spec|architect|revise-dag [...]
+  workflow approve-dag|start [...]
+  workflow cancel <runId> [--reason <text>] [--bot <larkAppId>]
+  workflow retry|grant [...] Handle blocked nodes or loops
+  template migrate-v3 [id|path ...] [--all] [--commit ...]
+                             Migrate v2 definitions (dry-run unless committed)
+  template archive-runs [--commit|--verify <archive>|--retire <archive> --ack-daemon-stopped]
+                             Privately archive v2 runs and quarantine them atomically
+
+Extensions:
+  voice [status|disable|asr] Configure voice summaries and recognition
+  vc-agent tat-gate|poll     Validate and poll meeting-agent events
+  plugin ...                 Install, enable, disable, and manage plugin services
+  whiteboard status|enable|disable|current|list|read|update|write
+                             Manage local project whiteboards
+
+Run \`botmux <command> --help\` for command-specific options.
+`.trim());
+    return;
+  }
   console.log(`
 botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
 
@@ -6684,6 +6820,8 @@ botmux v${getVersion()} — IM ↔ AI 编程 CLI 桥接
   lang [zh|en]         切换 UI 语言（无参 = 查看当前设置）
        --bot N         仅改 bots.json 中第 N 个 bot 的 lang
        --unset         清除（global 或 --bot N 配合）
+  distribution [status | pin <version> | unpin]
+                       查看 fork 发布源，或为 Workbench 托管主机固定审核通过的版本
   voice                配置语音总结（高级功能，独立于 setup）— 交互式填 TTS 引擎+凭证
        voice status    查看当前语音配置（凭证打码）
        voice disable   关闭语音功能（移除配置）
@@ -14646,8 +14784,8 @@ async function cmdLang(args: string[]): Promise<void> {
   // No-arg → status
   if (!target && !unset) {
     const bots = loadBotsJson();
-    const effective = globalLang ?? 'zh';
-    console.log(`Global lang: ${globalLang ?? '(unset, defaults to zh)'}`);
+    const effective = globalLang ?? 'en';
+    console.log(`Global lang: ${globalLang ?? '(unset, defaults to en)'}`);
     console.log(`Effective for CLI:    ${effective}`);
     console.log(`Config file:          ${globalConfigPath()}`);
     if (bots.length > 0) {
@@ -14689,7 +14827,7 @@ async function cmdLang(args: string[]): Promise<void> {
   // Global operations
   if (unset) {
     setGlobalLocale(null);
-    console.log(`✅ Cleared global lang (will default to zh).`);
+    console.log(`✅ Cleared global lang (will default to en).`);
     await reportLocaleApplied();
     return;
   }
@@ -14702,6 +14840,37 @@ async function cmdLang(args: string[]): Promise<void> {
   setGlobalLocale(target);
   console.log(`✅ Set global lang → ${target}.`);
   await reportLocaleApplied();
+}
+
+/** Workbench-facing release provenance and approved-version pin. */
+function cmdDistribution(args: string[]): void {
+  const action = args[0] ?? 'status';
+  if (action === 'status' && args.length <= 1) {
+    console.log(JSON.stringify({
+      source: BOTMUX_DISTRIBUTION_SOURCE,
+      repository: BOTMUX_DISTRIBUTION_REPOSITORY,
+      approvedVersion: approvedDistributionVersion() ?? null,
+    }, null, 2));
+    return;
+  }
+  if (action === 'pin') {
+    const version = normalizeApprovedVersion(args[1]);
+    if (!version || args.length !== 2) {
+      console.error('Usage: botmux distribution pin <exact-version>');
+      process.exitCode = 2;
+      return;
+    }
+    mergeGlobalConfig({ distribution: { approvedVersion: version } });
+    console.log(`Pinned this host to approved Botmux release v${version}.`);
+    return;
+  }
+  if (action === 'unpin' && args.length === 1) {
+    mergeGlobalConfig({ distribution: null });
+    console.log('Cleared the approved-version pin. Release checks now follow the latest stable fork release.');
+    return;
+  }
+  console.error('Usage: botmux distribution [status | pin <exact-version> | unpin]');
+  process.exitCode = 2;
 }
 
 // ─── botmux preset ────────────────────────────────────────────────────────────
@@ -14987,6 +15156,7 @@ const FLEET_KNOWN_FLAGS: Record<string, readonly string[]> = {
 };
 const FLEET_VALUE_FLAGS = new Set(['--companion-secret-file', '--companion-bot']);
 if (ROOT_FLEET_MUTATION_COMMANDS.has(command ?? '')) {
+  const fleetCopy = (zh: string, en: string): string => getDefaultLocale() === 'en' ? en : zh;
   const fleetArgs = process.argv.slice(3);
   if (fleetArgs.some(arg => arg === '--help' || arg === '-h')) {
     showHelp();
@@ -15008,14 +15178,23 @@ if (ROOT_FLEET_MUTATION_COMMANDS.has(command ?? '')) {
     maxPositionalArgs,
   });
   if (unknownArgs.length > 0) {
-    console.error(`未知参数: ${unknownArgs.join(' ')}`);
-    console.error(`  \`botmux ${command}\` 只接受: ${['--help', ...knownFleetFlags].join(' ')}。`);
-    console.error('  为避免把一个看起来像「只检查」的参数当成「执行」，这里直接中止，不做任何改动。');
+    console.error(fleetCopy(`未知参数: ${unknownArgs.join(' ')}`, `Unknown argument: ${unknownArgs.join(' ')}`));
+    console.error(fleetCopy(
+      `  \`botmux ${command}\` 只接受: ${['--help', ...knownFleetFlags].join(' ')}。`,
+      `  \`botmux ${command}\` accepts only: ${['--help', ...knownFleetFlags].join(' ')}.`,
+    ));
+    console.error(fleetCopy(
+      '  为避免把一个看起来像「只检查」的参数当成「执行」，这里直接中止，不做任何改动。',
+      '  Nothing was changed: an unknown option must never be interpreted as permission to mutate the installation.',
+    ));
     process.exit(2);
   }
   if ((command === 'upgrade' || command === 'update') && fleetArgs.filter(a => a !== '--help' && a !== '-h').length > 1) {
     const nonHelp = fleetArgs.filter(a => a !== '--help' && a !== '-h');
-    console.error(`❌ 不能同时指定多个升级目标（收到：${nonHelp.join(' ')}）。请只指定一个频道或版本。`);
+    console.error(fleetCopy(
+      `❌ 不能同时指定多个升级目标（收到：${nonHelp.join(' ')}）。请只指定一个频道或版本。`,
+      `❌ Multiple update targets were supplied (${nonHelp.join(' ')}). Choose exactly one channel or version.`,
+    ));
     process.exit(2);
   }
 }
@@ -16279,6 +16458,7 @@ switch (command) {
   case 'history':  await cmdHistory(process.argv.slice(3)); break;
   case 'quoted':   await cmdQuoted(process.argv.slice(3)); break;
   case 'lang':     await cmdLang(process.argv.slice(3)); break;
+  case 'distribution': cmdDistribution(process.argv.slice(3)); break;
   case 'voice':    await cmdVoiceSetup(process.argv.slice(3)); break;
   case 'vc-agent': {
     const { cmdVcAgent } = await import('./cli/vc-agent.js');

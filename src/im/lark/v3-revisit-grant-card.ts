@@ -16,6 +16,7 @@
 
 import { config } from '../../config.js';
 import { buildV3RunDetailUrl } from '../../core/dashboard-url.js';
+import { DEFAULT_LOCALE, t, type Locale } from '../../i18n/index.js';
 
 export const V3_REVISIT_GRANT_ACTION = 'v3_revisit_grant';
 
@@ -48,6 +49,7 @@ export interface V3RevisitGrantCardInput {
   detailMaxChars?: number;
   /** 有值 → 渲染冻结的「已准许」卡(无按钮,防 stale UI 重复提交)。 */
   grantedNow?: { by?: string };
+  locale?: Locale;
 }
 
 const DEFAULT_DETAIL_MAX_CHARS = 500;
@@ -63,13 +65,20 @@ function v3RunDetailUrl(runId: string): string {
 }
 
 export function buildV3RevisitGrantCard(input: V3RevisitGrantCardInput): string {
+  const locale = input.locale ?? DEFAULT_LOCALE;
   const nonce = input.nonce ?? v3RevisitGrantCardNonce(input.runId, input.sourceNodeId, input.attemptId);
   const webDetailUrl = input.webDetailUrl ?? v3RunDetailUrl(input.runId);
   const detailMax = input.detailMaxChars ?? DEFAULT_DETAIL_MAX_CHARS;
   const granted = input.grantedNow;
 
-  const scopeLabel = input.tier === 'pair' ? `${input.sourceNodeId} → ${input.toNodeId}` : '整个 run';
-  const title = granted ? `已准许回溯：${scopeLabel}` : `回溯预算耗尽：${scopeLabel}`;
+  const scopeLabel = input.tier === 'pair'
+    ? `${input.sourceNodeId} → ${input.toNodeId}`
+    : t('workflow.v3.revisit.scope.run', undefined, locale);
+  const title = t(
+    granted ? 'workflow.v3.revisit.title.granted' : 'workflow.v3.revisit.title.exhausted',
+    { scope: scopeLabel },
+    locale,
+  );
   // 与 loop grant 卡同款语义色:耗尽=橙(可恢复),准许后转绿。
   const template = granted ? 'green' : 'orange';
 
@@ -78,8 +87,8 @@ export function buildV3RevisitGrantCard(input: V3RevisitGrantCardInput): string 
       tag: 'div',
       fields: [
         { is_short: true, text: { tag: 'lark_md', content: `**Run**\n${escapeMd(short(input.runId, 24))}` } },
-        { is_short: true, text: { tag: 'lark_md', content: `**回溯**\n${escapeMd(input.sourceNodeId)} → ${escapeMd(input.toNodeId)}` } },
-        { is_short: true, text: { tag: 'lark_md', content: `**耗尽层级**\n${input.tier === 'pair' ? 'per-pair（这条边）' : 'per-run（全局）'}` } },
+        { is_short: true, text: { tag: 'lark_md', content: `**${t('workflow.v3.revisit.field', undefined, locale)}**\n${escapeMd(input.sourceNodeId)} → ${escapeMd(input.toNodeId)}` } },
+        { is_short: true, text: { tag: 'lark_md', content: `**${t('workflow.v3.revisit.tier', undefined, locale)}**\n${t(input.tier === 'pair' ? 'workflow.v3.revisit.tier.pair' : 'workflow.v3.revisit.tier.run', undefined, locale)}` } },
       ],
     },
     { tag: 'hr' },
@@ -87,8 +96,11 @@ export function buildV3RevisitGrantCard(input: V3RevisitGrantCardInput): string 
       tag: 'div',
       text: {
         tag: 'lark_md',
-        content: `**情况**\n节点 ${escapeMd(input.sourceNodeId)} 想回溯到 ${escapeMd(input.toNodeId)},但回溯次数已到上限` +
-          (input.detail ? `\n${escapeMd(truncate(input.detail, detailMax))}` : ''),
+        content: t('workflow.v3.revisit.situation', {
+          source: escapeMd(input.sourceNodeId),
+          target: escapeMd(input.toNodeId),
+          detail: input.detail ? `\n${escapeMd(truncate(input.detail, detailMax, locale))}` : '',
+        }, locale),
       },
     },
   ];
@@ -99,8 +111,10 @@ export function buildV3RevisitGrantCard(input: V3RevisitGrantCardInput): string 
       tag: 'div',
       text: {
         tag: 'lark_md',
-        content: `➕ 已准许再回溯 1 次（${input.tier === 'pair' ? '本边' : '全局'}）` +
-          (granted.by ? ` · by ${escapeMd(short(granted.by, 20))}` : ''),
+        content: t('workflow.v3.revisit.granted_now', {
+          scope: t(input.tier === 'pair' ? 'workflow.v3.revisit.scope.edge' : 'workflow.v3.revisit.scope.global', undefined, locale),
+          by: granted.by ? ` · by ${escapeMd(short(granted.by, 20))}` : '',
+        }, locale),
       },
     });
   } else {
@@ -108,7 +122,7 @@ export function buildV3RevisitGrantCard(input: V3RevisitGrantCardInput): string 
       tag: 'div',
       text: {
         tag: 'lark_md',
-        content: '点「准许回溯 +1」会放行这次回溯并自动重跑该节点；若觉得不该再回溯,留着不点即可（run 保持受阻）。',
+        content: t('workflow.v3.revisit.help', undefined, locale),
       },
     });
     elements.push({
@@ -116,7 +130,7 @@ export function buildV3RevisitGrantCard(input: V3RevisitGrantCardInput): string 
       actions: [
         {
           tag: 'button',
-          text: { tag: 'plain_text', content: '➕ 准许回溯 +1' },
+          text: { tag: 'plain_text', content: t('workflow.v3.revisit.button', undefined, locale) },
           type: 'primary',
           value: {
             action: V3_REVISIT_GRANT_ACTION,
@@ -137,7 +151,7 @@ export function buildV3RevisitGrantCard(input: V3RevisitGrantCardInput): string 
     actions: [
       {
         tag: 'button',
-        text: { tag: 'plain_text', content: 'Web 详情（需登录）' },
+        text: { tag: 'plain_text', content: t('workflow.v3.button.web', undefined, locale) },
         type: 'default',
         multi_url: { url: webDetailUrl, pc_url: webDetailUrl, android_url: webDetailUrl, ios_url: webDetailUrl },
       },
@@ -151,9 +165,9 @@ export function buildV3RevisitGrantCard(input: V3RevisitGrantCardInput): string 
   });
 }
 
-function truncate(s: string, max: number): string {
+function truncate(s: string, max: number, locale: Locale): string {
   if (s.length <= max) return s;
-  return `${s.slice(0, max)}…（截断，完整见 Web 详情）`;
+  return `${s.slice(0, max)}${t('workflow.v3.truncated', undefined, locale)}`;
 }
 
 function short(s: string, max: number): string {

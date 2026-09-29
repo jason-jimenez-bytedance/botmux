@@ -54,7 +54,7 @@ export function ensureCjkFontsInstalled(): void {
       logger.info('[font-installer] CJK fonts installed. Restart the daemon for screenshots to render CJK characters correctly (botmux restart).');
     } else {
       const hint = stderr.includes('password is required') || stderr.includes('a terminal is required')
-        ? '（当前用户没有免密 sudo 权限）'
+        ? ' (the current user does not have passwordless sudo)'
         : '';
       logger.warn(`[font-installer] Installation failed exit=${code}${hint}. Run manually: ${MANUAL_CMD}\n${stderr.trim().slice(0, 400)}`);
     }

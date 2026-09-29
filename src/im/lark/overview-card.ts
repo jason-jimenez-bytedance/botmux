@@ -15,7 +15,7 @@ import type { DaemonClient } from '../../dashboard/daemon-internal-client.js';
 import type { DashboardSettingsInput } from '../../dashboard/settings-card-model.js';
 import type { ScheduleCardTaskInput } from '../../dashboard/schedule-card-model.js';
 import type { SessionRow } from '../../core/dashboard-rows.js';
-import { type Locale, t } from '../../i18n/index.js';
+import { getDefaultLocale, type Locale, t } from '../../i18n/index.js';
 
 import { buildSessionsCard } from './sessions-card.js';
 import { buildSchedulesCard } from './schedules-card.js';
@@ -468,7 +468,7 @@ export async function handleOverviewCardAction(
   larkAppId: string,
   deps: OverviewCardHandlerDeps,
 ): Promise<OverviewCardHandlerResult> {
-  const locale: Locale = deps.locale ?? 'zh';
+  const locale: Locale = deps.locale ?? getDefaultLocale();
   const value = (data.action?.value ?? {}) as Record<string, string>;
   const operatorOpenId = data.operator?.open_id;
   const action = value.action;

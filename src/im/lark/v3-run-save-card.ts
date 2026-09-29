@@ -8,6 +8,7 @@
 
 import { createHash } from 'node:crypto';
 import type { V3RunEnvelope } from '../../workflows/v3/run-envelope.js';
+import { DEFAULT_LOCALE, t, type Locale } from '../../i18n/index.js';
 
 export const V3_RUN_SAVE_ACTION = 'v3_run_save';
 export const V3_RUN_SAVE_CONFIRM_ACTION = 'v3_run_save_confirm';
@@ -70,40 +71,44 @@ export function buildV3RunSaveWarningCard(input: {
   scope: V3RunSaveScope;
   warnings: readonly string[];
   warningDigest: string;
+  locale?: Locale;
 }): string {
-  const scopeText = input.scope === 'global' ? '当前 Bot 全局' : '本群';
+  const locale = input.locale ?? DEFAULT_LOCALE;
+  const scopeText = t(input.scope === 'global' ? 'workflow.v3.scope.global' : 'workflow.v3.scope.chat', undefined, locale);
   const warningLines = input.warnings.slice(0, 8).map((warning) => `- ${escapeMd(warning)}`);
   if (input.warnings.length > warningLines.length) {
-    warningLines.push(`- 另有 ${input.warnings.length - warningLines.length} 项`);
+    warningLines.push(t('workflow.v3.save.warning_more', { count: input.warnings.length - warningLines.length }, locale));
   }
   return JSON.stringify({
     config: { wide_screen_mode: true },
     header: {
       template: 'orange',
-      title: { tag: 'plain_text', content: '保存前需要确认' },
+      title: { tag: 'plain_text', content: t('workflow.v3.save.warning_title', undefined, locale) },
     },
     elements: [
       {
         tag: 'div',
         text: {
           tag: 'lark_md',
-          content:
-            `将 run \`${escapeMd(short(input.envelope.runId, 28))}\` 保存到**${scopeText}**时，` +
-            `发现可能不适合固化的内容：\n${warningLines.join('\n')}`,
+          content: t('workflow.v3.save.warning_body', {
+            runId: escapeMd(short(input.envelope.runId, 28)),
+            scope: scopeText,
+            warnings: warningLines.join('\n'),
+          }, locale),
         },
       },
       {
         tag: 'note',
         elements: [{
           tag: 'plain_text',
-          content: '这里只展示字段位置与风险类型，不展示原值。请确认其中没有密钥或机器私有路径。',
+          content: t('workflow.v3.save.warning_note', undefined, locale),
         }],
       },
       {
         tag: 'action',
         actions: [{
           tag: 'button',
-          text: { tag: 'plain_text', content: '确认安全并保存' },
+          text: { tag: 'plain_text', content: t('workflow.v3.save.confirm', undefined, locale) },
           type: 'danger',
           value: buildV3RunSaveActionValue(
             input.envelope,
@@ -125,33 +130,39 @@ export function buildV3RunSavedCard(input: {
   scope: V3RunSaveScope;
   /** When a replay requested another scope, first valid commit still wins. */
   requestedScope?: V3RunSaveScope;
+  locale?: Locale;
 }): string {
+  const locale = input.locale ?? DEFAULT_LOCALE;
   const runCommand = `/workflow run ${input.workflowId}`;
+  const scopeText = t(input.scope === 'global' ? 'workflow.v3.scope.global' : 'workflow.v3.scope.chat', undefined, locale);
   return JSON.stringify({
     config: { wide_screen_mode: true },
     header: {
       template: 'green',
-      title: { tag: 'plain_text', content: `✅ 已保存 · ${plainTitle(input.displayName, 80)}` },
+      title: { tag: 'plain_text', content: t('workflow.v3.save.saved_title', { name: plainTitle(input.displayName, 80) }, locale) },
     },
     elements: [
       {
         tag: 'div',
         fields: [
           { is_short: true, text: { tag: 'lark_md', content: `**Run**\n${escapeMd(short(input.runId, 28))}` } },
-          { is_short: true, text: { tag: 'lark_md', content: `**范围**\n${input.scope === 'global' ? '当前 Bot 全局' : '本群'}` } },
+          { is_short: true, text: { tag: 'lark_md', content: `**${t('workflow.v3.save.field.scope', undefined, locale)}**\n${scopeText}` } },
           { is_short: false, text: { tag: 'lark_md', content: `**Definition**\n\`${input.workflowId}\` · v${input.humanVersion} · \`${short(input.revisionId, 18)}\`` } },
         ],
       },
       { tag: 'hr' },
       {
         tag: 'div',
-        text: { tag: 'lark_md', content: `下次运行：\`${escapeMd(runCommand)}\`` },
+        text: { tag: 'lark_md', content: t('workflow.v3.save.run_again', { command: escapeMd(runCommand) }, locale) },
       },
       ...(input.requestedScope && input.requestedScope !== input.scope ? [{
         tag: 'note',
         elements: [{
           tag: 'plain_text',
-          content: `该 run 此前已保存到${input.scope === 'global' ? '当前 Bot 全局' : '本群'}；本次“${input.requestedScope === 'global' ? '当前 Bot 全局' : '本群'}”请求未重复创建。`,
+          content: t('workflow.v3.save.already_saved', {
+            scope: scopeText,
+            requestedScope: t(input.requestedScope === 'global' ? 'workflow.v3.scope.global' : 'workflow.v3.scope.chat', undefined, locale),
+          }, locale),
         }],
       }] : []),
     ],

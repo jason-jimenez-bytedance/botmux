@@ -27,6 +27,7 @@ const INPUT = {
   tier: 'pair' as const,
   attemptId: 'C#002/attempts/001',
   detail: 'revisit budget exhausted for C->A (1/1) — grant +1 (this pair) to continue',
+  locale: 'zh' as const,
 };
 
 describe('buildV3RevisitGrantCard', () => {

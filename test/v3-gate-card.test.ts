@@ -25,7 +25,18 @@ function buttonValues(card: any): any[] {
 }
 
 describe('v3-gate-card — buildV3GateCard', () => {
-  const base = { runId: 'demo-260603-1700', waitId: 'send-gate', nodeId: 'send', prompt: '要对外发送，批准？' };
+  const base = { runId: 'demo-260603-1700', waitId: 'send-gate', nodeId: 'send', prompt: '要对外发送，批准？', locale: 'zh' as const };
+
+  it('defaults approval cards to English', () => {
+    const { locale: _locale, ...input } = base;
+    const card = parse(buildV3GateCard({ ...input, prompt: 'Approve deployment?' }));
+    const text = JSON.stringify(card);
+    expect(card.header.title.content).toContain('Approval required');
+    expect(text).toContain('Approve');
+    expect(text).toContain('Reject');
+    expect(text).toContain('Web details (sign-in required)');
+    expect(text).not.toMatch(/[\u3400-\u9fff]/u);
+  });
 
   it('pending 卡：blue header + 通过/拒绝按钮带 {action,runId,waitId,nonce}', () => {
     const card = parse(buildV3GateCard(base));
@@ -122,7 +133,7 @@ describe('v3-gate-card — buildV3GateCard', () => {
     expect(rendered).toContain('冻结输入 Hash（本次批准对象）');
     expect(rendered).toContain('Executor: feishu-send');
     expect(rendered).toContain('{\\"content\\":\\"hello\\"}');
-    expect(rendered).toContain('截断，完整见 Web 详情');
+    expect(rendered).toContain('…');
   });
 
   it('host 冻结预览作为 plain_text 渲染，不把上游 Lark tag 当卡片语法', () => {

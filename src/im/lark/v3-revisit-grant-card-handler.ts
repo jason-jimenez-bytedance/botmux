@@ -19,6 +19,7 @@ import { requestRevisitGrant, revisitBudgetBlockedInfoFor, readV3RunChatBinding 
 import { readJournal } from '../../workflows/v3/journal.js';
 import { defaultBaseDir, type RunChatBinding } from '../../workflows/v3/grill-state.js';
 import { isValidRunId } from '../../workflows/v3/ops-projection.js';
+import { getDefaultLocale, localeForBot, t } from '../../i18n/index.js';
 
 export function isV3RevisitGrantAction(action: unknown): boolean {
   return action === V3_REVISIT_GRANT_ACTION;
@@ -46,18 +47,19 @@ export async function handleV3RevisitGrantAction(
 ): Promise<unknown> {
   const baseDir = deps.baseDir ?? defaultBaseDir();
   if (!isValidRunId(value.runId)) {
-    return { toast: { type: 'warning', content: '准许已失效（非法 run）' } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.invalid_run', undefined, getDefaultLocale()) } };
   }
   // attemptId 入 nonce:grant+retry 消费后节点进入新 attempt,旧卡 nonce 对不上 → stale。
   if (value.nonce !== v3RevisitGrantCardNonce(value.runId, value.sourceNodeId, value.attemptId)) {
-    return { toast: { type: 'warning', content: '准许卡已失效（nonce 不匹配，看最新那张卡）' } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.stale_card', undefined, getDefaultLocale()) } };
   }
   const tier = value.tier === 'run' ? 'run' : 'pair';
   const runDir = join(baseDir, value.runId);
   const binding = readV3RunChatBinding(runDir);
+  const locale = localeForBot(binding?.larkAppId);
 
   if (deps.canResolve && !deps.canResolve(binding, operatorOpenId)) {
-    return { toast: { type: 'warning', content: '你没有权限准许这个 run 的回溯' } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.unauthorized_revisit', undefined, locale) } };
   }
 
   const requestGrant = deps.requestGrant ?? requestRevisitGrant;
@@ -73,7 +75,10 @@ export async function handleV3RevisitGrantAction(
     });
   } catch (err) {
     return {
-      toast: { type: 'error', content: `准许失败，请再试：${err instanceof Error ? err.message : String(err)}` },
+      toast: { type: 'error', content: t('workflow.v3.toast.action_failed', {
+        action: locale === 'zh' ? '准许' : 'Approval',
+        error: err instanceof Error ? err.message : String(err),
+      }, locale) },
     };
   }
 
@@ -81,7 +86,11 @@ export async function handleV3RevisitGrantAction(
     return {
       toast: {
         type: 'warning',
-        content: outcome.reason === 'partial-pair' ? '准许卡参数不完整（pair 信息缺失）' : '准许卡与当前受阻节点不匹配',
+        content: t(
+          outcome.reason === 'partial-pair' ? 'workflow.v3.toast.invalid_pair' : 'workflow.v3.toast.revisit_mismatch',
+          undefined,
+          locale,
+        ),
       },
     };
   }
@@ -97,9 +106,9 @@ export async function handleV3RevisitGrantAction(
       toast: {
         type: 'warning',
         content:
-          outcome.reason === 'missing' ? '该 run 不存在或已清理'
-          : outcome.reason === 'stale-attempt' ? '该节点已进入新一次尝试，这张旧卡失效（看最新那张卡）'
-          : '该 run 已不在回溯预算受阻状态，准许卡失效',
+          outcome.reason === 'missing' ? t('workflow.v3.toast.run_missing', undefined, locale)
+          : outcome.reason === 'stale-attempt' ? t('workflow.v3.toast.stale_attempt', undefined, locale)
+          : t('workflow.v3.toast.revisit_not_blocked', undefined, locale),
       },
     };
   }
@@ -115,6 +124,7 @@ export async function handleV3RevisitGrantAction(
     attemptId: value.attemptId,
     detail: info?.detail,
     grantedNow: { by: operatorOpenId },
+    locale,
   });
   return JSON.parse(frozen);
 }

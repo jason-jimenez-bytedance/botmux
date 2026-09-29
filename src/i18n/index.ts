@@ -4,8 +4,12 @@
  * Resolution order for the active locale at a given call site:
  *   1. explicit `locale` argument to `t()`
  *   2. per-bot `lang` config (resolved via `botLocale()`)
- *   3. process default — set by the entrypoint from `~/.botmux/config.json`
- *      (`setDefaultLocale(...)`), falling back to `'zh'` for backward compat.
+ *   3. saved machine default — set by the entrypoint from
+ *      `~/.botmux/config.json` (`setDefaultLocale(...)`)
+ *   4. the product default (`en`) for a fresh/unconfigured installation.
+ *
+ * Dashboard/browser locale is deliberately separate; see
+ * `dashboard/web/i18n.ts`. A browser preference must not change model output.
  *
  * The i18n module itself stays pure — it does not read the filesystem. The
  * CLI and daemon entrypoints load the global config and call
@@ -23,7 +27,9 @@ const dictionaries: Record<Locale, Record<string, string>> = {
   en: enMessages,
 };
 
-let defaultLocale: Locale = 'zh';
+export const DEFAULT_LOCALE: Locale = 'en';
+
+let defaultLocale: Locale = DEFAULT_LOCALE;
 
 export function getDefaultLocale(): Locale {
   return defaultLocale;
@@ -99,14 +105,14 @@ export function setPromptOverrideResolver(resolver: PromptOverrideResolver | und
  */
 export function shippedText(key: string, locale?: Locale): string {
   const loc = locale ?? defaultLocale;
-  return dictionaries[loc]?.[key] ?? dictionaries.zh[key] ?? key;
+  return dictionaries[loc]?.[key] ?? dictionaries[DEFAULT_LOCALE][key] ?? key;
 }
 
 /**
  * Translate a key. Resolution order:
  *   1. a user override for (key, resolved-locale), when registered
  *   2. the active-locale dictionary
- *   3. the Chinese dictionary (fallback)
+ *   3. the product-default English dictionary (fallback)
  *   4. the key itself (so missing keys are loud, not empty)
  *
  * The override lookup is wrapped so a faulty resolver can never break prompt
@@ -118,6 +124,6 @@ export function t(key: string, params?: Record<string, string | number>, locale?
   if (promptOverrideResolver) {
     try { tpl = promptOverrideResolver(key, loc); } catch { tpl = undefined; }
   }
-  if (tpl === undefined) tpl = dictionaries[loc]?.[key] ?? dictionaries.zh[key] ?? key;
+  if (tpl === undefined) tpl = dictionaries[loc]?.[key] ?? dictionaries[DEFAULT_LOCALE][key] ?? key;
   return params ? interpolate(tpl, params) : tpl;
 }

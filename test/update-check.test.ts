@@ -12,6 +12,7 @@ import {
   fetchLatestVersion,
   fetchGithubReleaseVersion,
   selectRollbackVersions,
+  selectGithubRollbackVersions,
   fetchRollbackVersions,
   fetchReleasesSince,
   normalizeRegistryBase,
@@ -169,30 +170,29 @@ describe('registryLatestUrl / registryPackumentUrl', () => {
 });
 
 describe('fetchLatestVersion', () => {
-  // registry is pinned so the tests never spawn `npm config get registry`.
-  it('returns the registry version', async () => {
-    const v = await fetchLatestVersion({ registry: 'https://registry.npmjs.org/', fetchImpl: async () => jsonResponse(200, { version: '2.85.1' }) });
+  it('returns this fork GitHub Release version', async () => {
+    const v = await fetchLatestVersion({ approvedVersion: null, fetchImpl: async () => jsonResponse(200, { tag_name: 'v2.85.1' }) });
     expect(v).toBe('2.85.1');
   });
   it('null on non-200 / malformed / unparseable / throw', async () => {
-    expect(await fetchLatestVersion({ registry: 'https://registry.npmjs.org/', fetchImpl: async () => jsonResponse(503, {}) })).toBeNull();
-    expect(await fetchLatestVersion({ registry: 'https://registry.npmjs.org/', fetchImpl: async () => jsonResponse(200, {}) })).toBeNull();
-    expect(await fetchLatestVersion({ registry: 'https://registry.npmjs.org/', fetchImpl: async () => jsonResponse(200, { version: 'latest' }) })).toBeNull();
-    expect(await fetchLatestVersion({ registry: 'https://registry.npmjs.org/', fetchImpl: async () => { throw new Error('offline'); } })).toBeNull();
+    expect(await fetchLatestVersion({ approvedVersion: null, fetchImpl: async () => jsonResponse(503, {}) })).toBeNull();
+    expect(await fetchLatestVersion({ approvedVersion: null, fetchImpl: async () => jsonResponse(200, {}) })).toBeNull();
+    expect(await fetchLatestVersion({ approvedVersion: null, fetchImpl: async () => jsonResponse(200, { tag_name: 'latest' }) })).toBeNull();
+    expect(await fetchLatestVersion({ approvedVersion: null, fetchImpl: async () => { throw new Error('offline'); } })).toBeNull();
   });
-  it('queries the configured registry — the same source npm install resolves through', async () => {
+  it('queries this fork and never the configured npm registry', async () => {
     let seen = '';
-    // `unknown` param: assignable to typeof fetch regardless of lib typings.
-    const fetchImpl = async (url: unknown) => { seen = String(url); return jsonResponse(200, { version: '2.85.1' }); };
-    const v = await fetchLatestVersion({ registry: 'https://mirror.example.com', fetchImpl });
+    const fetchImpl = async (url: unknown) => { seen = String(url); return jsonResponse(200, { tag_name: 'v2.85.1' }); };
+    const v = await fetchLatestVersion({ registry: 'https://mirror.example.com', approvedVersion: null, fetchImpl });
     expect(v).toBe('2.85.1');
-    expect(seen).toBe('https://mirror.example.com/botmux/latest');
+    expect(seen).toBe('https://api.github.com/repos/jason-jimenez-bytedance/botmux/releases/latest');
+    expect(seen).not.toContain('registry.npmjs.org');
   });
-  it('falls back to the public registry when the configured value is garbage', async () => {
-    let seen = '';
-    const fetchImpl = async (url: unknown) => { seen = String(url); return jsonResponse(200, { version: '2.85.1' }); };
-    await fetchLatestVersion({ registry: 'garbage', fetchImpl });
-    expect(seen).toBe('https://registry.npmjs.org/botmux/latest');
+
+  it('uses an approved pin without network access', async () => {
+    const fetchImpl = vi.fn();
+    expect(await fetchLatestVersion({ approvedVersion: 'v2.84.7', fetchImpl })).toBe('2.84.7');
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 
@@ -200,6 +200,7 @@ describe('fetchGithubReleaseVersion', () => {
   it('reads latest and prerelease-channel versions from this fork', async () => {
     let seen = '';
     const latest = await fetchGithubReleaseVersion('latest', {
+      approvedVersion: null,
       fetchImpl: async (url) => {
         seen = String(url);
         return jsonResponse(200, { tag_name: 'v3.31.0' });
@@ -211,6 +212,7 @@ describe('fetchGithubReleaseVersion', () => {
     const canary = await fetchGithubReleaseVersion('canary', {
       fetchImpl: async () => jsonResponse(200, [
         { tag_name: 'v3.31.0-canary.1' },
+        { tag_name: 'v3.31.0-canary.9', draft: true },
         { tag_name: 'v3.31.0-canary.3' },
         { tag_name: 'v3.31.0-beta.1' },
       ]),
@@ -310,9 +312,25 @@ describe('rollback versions', () => {
     expect(selectRollbackVersions({ versions: { '2.85.0': { version: 'file:../botmux' } } }, '3.0.0')).toEqual([]);
   });
 
-  it('fetches and filters the registry packument', async () => {
+  const githubReleases = [
+    { tag_name: 'v2.84.0', published_at: '2026-06-18T00:00:00Z' },
+    { tag_name: 'v2.85.0', published_at: '2026-06-19T00:00:00Z' },
+    { tag_name: 'v2.85.1', published_at: '2026-06-20T00:00:00Z' },
+    { tag_name: 'v2.85.2-canary.0', prerelease: true },
+    { tag_name: 'v2.85.2', draft: true },
+    { tag_name: 'v3.0.0', published_at: '2026-06-21T00:00:00Z' },
+  ];
+
+  it('selects rollback candidates from published stable GitHub releases', () => {
+    expect(selectGithubRollbackVersions(githubReleases, '3.0.0', 2)).toEqual([
+      { version: '2.85.1', publishedAt: '2026-06-20T00:00:00Z' },
+      { version: '2.85.0', publishedAt: '2026-06-19T00:00:00Z' },
+    ]);
+  });
+
+  it('fetches and filters fork GitHub releases', async () => {
     const out = await fetchRollbackVersions('3.0.0', {
-      fetchImpl: async () => jsonResponse(200, packument),
+      fetchImpl: async () => jsonResponse(200, githubReleases),
       max: 1,
     });
     expect(out).toEqual({
@@ -321,11 +339,11 @@ describe('rollback versions', () => {
     });
   });
 
-  it('rollback packument stays PUBLIC — same source the pinned rollback install resolves from', async () => {
+  it('rollback discovery stays on the same fork GitHub source as installation', async () => {
     let seen = '';
-    const fetchImpl = async (url: unknown) => { seen = String(url); return jsonResponse(200, packument); };
+    const fetchImpl = async (url: unknown) => { seen = String(url); return jsonResponse(200, githubReleases); };
     await fetchRollbackVersions('3.0.0', { fetchImpl });
-    expect(seen).toBe('https://registry.npmjs.org/botmux');
+    expect(seen).toBe('https://api.github.com/repos/jason-jimenez-bytedance/botmux/releases?per_page=100');
   });
 
   it('reports registry and malformed-response failures', async () => {

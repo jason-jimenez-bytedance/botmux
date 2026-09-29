@@ -166,6 +166,8 @@ describe('BotOnboardingManager', () => {
     });
     const bots = JSON.parse(readFileSync(join(dir, 'bots.json'), 'utf-8'));
     expect(bots[0]).toMatchObject({ larkAppId: 'cli_web_owner', allowedUsers: ['on_creator'] });
+    expect(bots[0]).not.toHaveProperty('conversationPreset');
+    expect(bots[0]).not.toHaveProperty('lang');
     expect(bots[0]).not.toHaveProperty('disableStreamingCard');
     rmSync(dir, { recursive: true, force: true });
   });
@@ -1286,6 +1288,14 @@ describe('BotOnboardingManager', () => {
       expect.objectContaining({
         larkAppId: 'cli_mosa_pending',
         activationPending: true,
+        conversationPreset: 'workbench',
+        lang: 'en',
+        p2pMode: 'chat',
+        regularGroupMentionMode: 'topic',
+        replyDelivery: 'transcript',
+        cotEnabled: false,
+        disableStreamingCard: true,
+        silentTurnReactions: false,
       }),
     ]);
     scopesReady = true;

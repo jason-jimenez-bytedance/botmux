@@ -6960,7 +6960,7 @@ describe('POST /api/locale/reload', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(['zh', 'en']).toContain(body.defaultLocale);
+    expect(body.defaultLocale).toBe('en');
     expect(body.botLang).toBeNull();
     // The route applied it in-process: getDefaultLocale reflects the same value
     // (same i18n module singleton the daemon's card rendering reads).

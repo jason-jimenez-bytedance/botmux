@@ -35,7 +35,7 @@
 import { isDashboardAdmin } from '../../dashboard/dashboard-admins.js';
 import { composeSections, type SettingsCardDTO } from '../../dashboard/settings-card-model.js';
 import type { DaemonClient } from '../../dashboard/daemon-internal-client.js';
-import { type Locale, t } from '../../i18n/index.js';
+import { getDefaultLocale, type Locale, t } from '../../i18n/index.js';
 
 import { resolveUserUnionId as defaultResolveUserUnionId } from './client.js';
 import type { CardActionData } from './card-handler.js';
@@ -466,7 +466,7 @@ export async function handleSettingsCardAction(
   larkAppId: string,
   deps: SettingsCardHandlerDeps,
 ): Promise<SettingsCardHandlerResult> {
-  const locale: Locale = deps.locale ?? 'zh';
+  const locale: Locale = deps.locale ?? getDefaultLocale();
   const value = data.action?.value ?? {};
   const formValue = data.action?.form_value ?? {};
   const operatorOpenId = data.operator?.open_id;

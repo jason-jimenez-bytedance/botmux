@@ -28,21 +28,19 @@ describe('botmux root help workflow surface', () => {
         { cwd: process.cwd(), env, encoding: 'utf-8' },
       );
 
-      expect(stdout).toContain('workflow save [last|runId] [名称]');
+      expect(stdout).toContain('workflow save [last|runId] [name]');
       expect(stdout).toContain('goal run <goal> [--run-id <id>]');
       expect(stdout).toContain('actor current --json');
       expect(stdout).toContain('auth request [--scope "<scope1 scope2,...>"] [--json]');
       expect(stdout).toContain('auth wait --request-id <id> [--json]');
-      expect(stdout).toContain('同一 run-id 可安全重放终态或接续崩溃运行');
-      expect(stdout).toContain('发布当前 Bot 全局版本 / 确认 unsafe lint 请由用户在飞书显式发送');
-      expect(stdout).toContain('workflow run <名称|workflowId> [--param key=value ...]');
+      expect(stdout).toContain('a run ID safely resumes or replays');
+      expect(stdout).toContain('workflow run <name|workflowId> [--param key=value ...]');
       expect(stdout).toContain('workflow new|spec-finalize|approve-spec|revise-spec|architect|revise-dag');
       expect(stdout).toContain('workflow approve-dag|start');
       expect(stdout).toContain('template migrate-v3 [id|path ...]');
-      expect(stdout).toContain('v2 定义迁移：默认 dry-run');
+      expect(stdout).toContain('Migrate v2 definitions (dry-run unless committed)');
       expect(stdout).toContain('template archive-runs [--commit|--verify <archive>|--retire <archive> --ack-daemon-stopped]');
-      expect(stdout).toContain('v2 历史 run 私有静态归档');
-      expect(stdout).toContain('原子迁入 quarantine');
+      expect(stdout).toContain('Privately archive v2 runs and quarantine them atomically');
       expect(stdout).not.toContain('template <run|resume|cancel|ls|tail|validate|show>');
       expect(stdout).not.toContain('v2 执行兼容面');
       expect(stdout).not.toContain('workflow <run|resume|cancel|ls|tail|validate|show>');
@@ -92,7 +90,7 @@ describe('botmux root help workflow surface', () => {
       );
 
       expect(stdout).toContain('botmux v');
-      expect(stdout).toContain('restart     重启 daemon');
+      expect(stdout).toContain('start | stop | restart');
       // The claim under test is that BOTMUX mutates nothing in HOME. `.bun` is
       // the Bun runtime's own install cache (`.bun/install/cache`), minted by the
       // interpreter that runs the child — it appears when the suite runs under

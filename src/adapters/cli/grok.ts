@@ -164,6 +164,7 @@ export function createGrokAdapter(pathOverride?: string): CliAdapter {
       noTransport,
       triggerUserAuth,
       promptInjection,
+      conversationPreset,
     }) {
       const args: string[] = [];
       if (!disableCliBypass) {
@@ -219,6 +220,7 @@ export function createGrokAdapter(pathOverride?: string): CliAdapter {
           botOpenId,
           noTransport,
           triggerUserAuth,
+          conversationPreset,
           builtinSkillBlock: builtinSkillBlockForInjectsSessionContext(larkAppId, locale, {
             asksViaHook: false,
             whiteboardEnabled: whiteboardEnabled(),

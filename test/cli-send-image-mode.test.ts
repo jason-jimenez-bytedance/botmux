@@ -39,8 +39,8 @@ describe('send --image-mode', () => {
     const result = run(['--help']);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('--image-mode <mode>');
-    expect(result.stdout).toContain('fit_horizontal（默认）|medium|small|tiny');
-    expect(result.stdout).toContain('medium/small/tiny 等比占宽 1/2、1/3、1/4');
+    expect(result.stdout).toContain('fit_horizontal (default) | medium | small | tiny');
+    expect(result.stdout).toContain('medium/small/tiny use proportional widths of 1/2, 1/3, and 1/4');
   });
 });
 

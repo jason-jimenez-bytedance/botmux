@@ -40,7 +40,7 @@ A daemon watches Lark messages and spawns an isolated session process for each n
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jason-jimenez-bytedance/botmux/master/install.sh | sh
-botmux setup --lang en       # persist English setup, logs/cards, and English-only bot responses
+botmux setup --lang en       # persist English setup and English-default bot responses
 botmux start                 # start the daemon (botmux autostart enable for auto-start on boot)
 ```
 
@@ -50,7 +50,7 @@ botmux start                 # start the daemon (botmux autostart enable for aut
 >
 > Team-fork macOS builds are ad-hoc signed. If your organization distributes broadly on macOS, configure an Apple Developer ID signing environment before relying on persistent macOS privacy grants across upgrades.
 >
-> To upgrade, re-run the curl command above, then open a new terminal and run `botmux restart`; `botmux upgrade` is equivalent for binary installs. To install a pinned version: `curl -fsSL https://raw.githubusercontent.com/jason-jimenez-bytedance/botmux/master/install.sh | BOTMUX_VERSION=vX.Y.Z sh` (the variable must precede `sh` on the right side of the pipe).
+> To upgrade, re-run the curl command above, then open a new terminal and run `botmux restart`; `botmux upgrade` is equivalent for binary installs. Workbench-managed hosts must install an approved version: `curl -fsSL https://raw.githubusercontent.com/jason-jimenez-bytedance/botmux/master/install.sh | BOTMUX_REQUIRE_PINNED=1 BOTMUX_VERSION=vX.Y.Z sh` (the variables must precede `sh` on the right side of the pipe). This also persists the approved-version pin used by Dashboard and scheduled update checks.
 
 ### Publishing a team release
 
@@ -63,7 +63,9 @@ git tag -a v3.30.1 -m "Team release v3.30.1"
 git push origin v3.30.1
 ```
 
-The workflow builds Linux (glibc and musl) and macOS binaries for x64/arm64, creates SHA-256 files, and publishes a GitHub Release. Do not reuse an existing tag; increment the version for every release.
+The workflow builds Linux (glibc and musl) and macOS binaries for x64/arm64, creates SHA-256 files, and creates a complete draft GitHub Release. After disposable-devbox acceptance, a human publishes that draft. Do not reuse an existing tag; increment the version for every release.
+
+The release stays draft until all expected assets and checksum contents are verified. It also includes `botmux-manifest.json` with source commit, toolchain, tested TRAEx version, platform/libc requirements, artifact URLs and SHA-256 values. See the [Workbench pilot contract](docs-site/docs/en/workbench-pilot.md) for provisioning and acceptance steps.
 
 > This fork is distributed through GitHub Releases. `npm install -g botmux` installs the upstream package, not this fork.
 

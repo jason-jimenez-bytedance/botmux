@@ -366,10 +366,40 @@ describe('botmux routing prose XML boundaries', () => {
     const shell = buildBotmuxShellHints('en').join('\n');
     const system = buildBotmuxSystemPromptText({ locale: 'en' });
 
-    expect(shell).toContain('write every user-facing response in English');
-    expect(system).toContain('write every user-facing response in English');
-    expect(buildBotmuxShellHints('zh').join('\n')).not.toContain('user-facing response in English');
-    expect(buildBotmuxSystemPromptText({ locale: 'zh' })).not.toContain('user-facing response in English');
+    for (const prompt of [shell, system]) {
+      expect(prompt).toContain('Respond in English by default');
+      expect(prompt).toContain('Use another language when the user explicitly requests it');
+      expect(prompt).toContain('Preserve quotations, code, identifiers and requested translations');
+      expect(prompt).not.toContain('every response must be English');
+    }
+    expect(buildBotmuxShellHints('zh').join('\n')).not.toContain('Respond in English by default');
+    expect(buildBotmuxSystemPromptText({ locale: 'zh' })).not.toContain('Respond in English by default');
+  });
+
+  it('keeps the Workbench style and transcript delivery aligned on TraeX opening/follow-up turns', () => {
+    mockBotConfig.conversationPreset = 'workbench';
+    mockBotConfig.replyDelivery = 'transcript';
+    try {
+      const opening = buildNewTopicPrompt(
+        'hello', 'workbench-session', 'traex', undefined, undefined, undefined,
+        undefined, undefined, undefined, 'en', undefined, { larkAppId: 'app_test' },
+      );
+      const followUp = buildFollowUpContent('why?', 'workbench-session', {
+        cliId: 'traex', larkAppId: 'app_test', locale: 'en',
+      });
+
+      expect(opening).toContain('Conversation style: answer short requests directly');
+      expect(opening).toContain('Treat follow-ups and corrections as part of the current task');
+      expect(opening.match(/Conversation style:/g)).toHaveLength(1);
+      expect(opening).toContain('automatically forwarded back to Lark');
+      expect(opening).not.toContain('botmux send');
+      expect(followUp).not.toContain('Conversation style:');
+      expect(followUp).not.toContain('<botmux_reminder>');
+      expect(followUp).toContain('<user_message>\nwhy?\n</user_message>');
+    } finally {
+      delete mockBotConfig.conversationPreset;
+      delete mockBotConfig.replyDelivery;
+    }
   });
 
   it.each([
@@ -1213,7 +1243,7 @@ describe('builder locale fallback when the caller omits locale', () => {
     setDefaultLocale('zh');
     setBotLookup(enBot);
     const content = buildFollowUpContent('hello', SID, { cliId: 'codex', larkAppId: 'en-app' });
-    expect(content).toContain('<botmux_reminder>Write every user-facing response in English. Respond to messages addressed to you');
+    expect(content).toContain('<botmux_reminder>Respond to messages addressed to you');
     expect(content).not.toContain('发给你的消息');
   });
 

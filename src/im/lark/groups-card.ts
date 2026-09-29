@@ -30,7 +30,7 @@ import type {
 } from '../../dashboard/groups-card-model.js';
 import { buildGroupDetail, buildGroupRow } from '../../dashboard/groups-card-model.js';
 import type { DaemonClient } from '../../dashboard/daemon-internal-client.js';
-import { type Locale, t } from '../../i18n/index.js';
+import { getDefaultLocale, type Locale, t } from '../../i18n/index.js';
 
 import type { CardActionData } from './card-handler.js';
 
@@ -926,7 +926,7 @@ export async function handleGroupsCardAction(
   larkAppId: string,
   deps: GroupsCardHandlerDeps,
 ): Promise<GroupsCardHandlerResult> {
-  const locale: Locale = deps.locale ?? 'zh';
+  const locale: Locale = deps.locale ?? getDefaultLocale();
   const value = (data.action?.value ?? {}) as Record<string, string>;
   const operatorOpenId = data.operator?.open_id;
   const action = value.action;

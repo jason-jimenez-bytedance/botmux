@@ -151,6 +151,8 @@ describe('v3 ephemeral pool', () => {
     const worker = new ScriptedWorker();
     const factory = factoryFor(worker);
     const req = request();
+    req.botSnapshot.locale = 'en';
+    req.botSnapshot.conversationPreset = 'workbench';
     const pool = createEphemeralPool({
       factory,
       workerPath: '/tmp/worker.js',
@@ -189,6 +191,8 @@ describe('v3 ephemeral pool', () => {
     expect(worker.init?.cliId).toBe('claude-code');
     expect(worker.init?.larkAppSecret).toBe('secret');
     expect(worker.init?.prompt).toBe('');
+    expect(worker.init?.locale).toBe('en');
+    expect(worker.init?.conversationPreset).toBe('workbench');
     // Worker init follows the daemon's resolved backend (tmux by default),
     // never the old hardcoded 'pty' which is unusable in the compiled binary.
     expect(worker.init?.backendType).toBe(v3WorkerBackendType(config.daemon.backendType));

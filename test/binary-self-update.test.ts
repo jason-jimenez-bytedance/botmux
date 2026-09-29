@@ -508,15 +508,11 @@ describe('auto-update support is ONE predicate for UI and save-time validation',
     expect(r.plan).toBeNull();
   });
 
-  it('a package-manager binary is supported only when its plan resolves', () => {
+  it('rejects every package-manager install so the fork cannot switch to upstream npm', () => {
     expect(resolveAutoUpdateSupport({ kind: 'package-manager', packageRoot: '/usr/lib/node_modules/botmux' }).supported)
-      .toBe(true);
-    // Yarn is knowingly not driveable — promising support would offer an update
-    // that throws. (This is the case my first implementation got wrong by
-    // returning true for ANY npm-binary shape.)
+      .toBe(false);
     expect(resolveAutoUpdateSupport({ kind: 'package-manager', packageRoot: '/root/.config/yarn/global/node_modules/botmux' }).supported)
       .toBe(false);
-    // And the pre-fix compiled-binary root.
     expect(resolveAutoUpdateSupport({ kind: 'package-manager', packageRoot: '/' }).supported).toBe(false);
   });
 
@@ -524,36 +520,18 @@ describe('auto-update support is ONE predicate for UI and save-time validation',
     expect(resolveAutoUpdateSupport({ kind: 'unsupported', reason: 'unknown-binary-location' }).supported).toBe(false);
   });
 
-  it('NO ASYMMETRY: whatever status claims supportable, rollback can resolve too', () => {
-    /**
-     * The bug this pins: `/api/update/status` reported `rollbackSupported: true`
-     * for an npm-installed compiled binary (it resolves the MAPPED package root),
-     * while `/api/update/rollback` still resolved from `botmuxInstallRoot()` — on a
-     * FRESH process there is no `lastSuccessfulUpdatePlan` yet, so that is "/" and
-     * the plan resolution throws. Net effect: the UI offers a rollback button whose
-     * first click always fails.
-     *
-     * Both endpoints must therefore start from the same strategy. Assert the two
-     * roots agree for every shape that claims support.
-     */
+  it('supports only self-replacing fork binaries across update and rollback surfaces', () => {
     const npmBinary = resolveUpdateStrategy(
       true, '/usr/lib/node_modules/botmux-linux-x64/botmux', '/', {}, '/home/u',
     );
     expect(npmBinary.kind).toBe('package-manager');
     const support = resolveAutoUpdateSupport(npmBinary);
-    expect(support.supported).toBe(true);
+    expect(support).toEqual({ supported: false, plan: null });
 
-    // What rollback must use — the strategy's root, NOT the "/" install root.
-    const rollbackRoot = npmBinary.kind === 'package-manager' ? npmBinary.packageRoot : '';
-    expect(tryResolveGlobalInstallPlan(rollbackRoot, 'linux')).not.toBeNull();
-    // ...and the pre-fix root, to show the two really differ (the defect).
-    expect(tryResolveGlobalInstallPlan('/', 'linux')).toBeNull();
-
-    // A self-replacing binary is the reverse case: update supported, rollback NOT,
-    // which is why rollbackSupported is reported separately rather than derived.
+    // A self-replacing binary is the only provenance-safe update mechanism.
     const curl = resolveUpdateStrategy(true, '/home/u/.botmux/bin/botmux', '/', {}, '/home/u');
     expect(resolveAutoUpdateSupport(curl).supported).toBe(true);
-    expect(resolveAutoUpdateSupport(curl).plan).toBeNull(); // ⟹ rollbackSupported false
+    expect(resolveAutoUpdateSupport(curl).plan).toBeNull();
   });
 
 });
@@ -661,7 +639,7 @@ describe('concurrent updates report mutual exclusion, not lock internals', () =>
     expect(branchStart, 'the self-replace branch moved — update this guard').toBeGreaterThan(0);
     const lockAt = cli.indexOf('withFileLock', branchStart);
     expect(lockAt, 'the self-replace branch no longer takes the update lock').toBeGreaterThan(branchStart);
-    const block = cli.slice(branchStart, lockAt + 1200);
+    const block = cli.slice(branchStart, lockAt + 2200);
     // The friendly notice must be gated on BOTH halves: callback-not-entered AND a
     // genuine lock timeout. Guarding on `!acquired` alone is the over-broad version
     // that reported ENOSPC/ENOENT as "another update is running".
@@ -673,7 +651,7 @@ describe('concurrent updates report mutual exclusion, not lock internals', () =>
     expect(block).not.toMatch(/if \(!acquired\)\s*\{/);
   });
 
-  it('SOURCE GUARD: no update/rollback endpoint feeds resolveGlobalInstallPlan the "/" install root', () => {
+  it('SOURCE GUARD: update/rollback never fall back to the upstream package-manager distribution', () => {
     /**
      * ⚠️ WHY A SOURCE ASSERTION AND NOT A BEHAVIOURAL ONE. The pure-function test
      * above proves the two ROOTS differ, but it cannot see which one dashboard.ts
@@ -691,38 +669,12 @@ describe('concurrent updates report mutual exclusion, not lock internals', () =>
      * fires on correct code gets deleted, so it is scoped to the plan calls.
      */
     const src = readFileSync(resolve('src/dashboard.ts'), 'utf-8');
-    // Every `resolveGlobalInstallPlan(<root>…)` call and the identifier it is given.
-    const roots = [...src.matchAll(/resolveGlobalInstallPlan\(\s*([A-Za-z_$][\w$]*)/g)].map(m => m[1]);
-    expect(roots.length, 'expected to find the plan call sites — did they get renamed?')
-      .toBeGreaterThanOrEqual(2);
-    for (const ident of roots) expect(ident).toBe('packageRoot');
-
-    /**
-     * Every plan call takes a `packageRoot`, and every `packageRoot` assignment must
-     * let the resolved strategy decide. The display-only root in /api/update/status
-     * is named `classifyRoot` precisely so it is outside this rule — it feeds
-     * `currentUpdateStrategy` (which handles "/" correctly) and a label, never a plan.
-     *
-     * A *guarded* `runStrategy.kind === 'package-manager' ? runStrategy.packageRoot :
-     * botmuxInstallRoot()` is correct: that ternary is the Node path, where the install
-     * root IS right. So the rule is "a strategy decides this root", not "the identifier
-     * is absent" — an earlier version asserted the latter and failed on clean code.
-     */
-    const assignments = [...src.matchAll(/const packageRoot =([\s\S]{0,220}?);/g)].map(m => m[1]);
-    expect(assignments.length, 'expected the plan-root assignments — were they renamed?')
-      .toBeGreaterThanOrEqual(2);
-    const offenders = assignments.filter(a => !/(runStrategy|rollbackStrategy)\.packageRoot/.test(a));
-    expect(
-      offenders.map(a => a.replace(/\s+/g, ' ').trim()),
-      'a plan root is chosen without consulting the resolved strategy — botmuxInstallRoot() '
-        + 'is "/" for every compiled binary and resolveGlobalInstallPlan throws on it.',
-    ).toEqual([]);
-    // Positive controls: the strategy-based fallbacks ARE present, so this guard is
-    // asserting against real code rather than passing on an empty search.
-    expect(src).toMatch(/runStrategy\.kind === 'package-manager' \? runStrategy\.packageRoot/);
-    expect(src).toMatch(/\?\?\s*rollbackStrategy\.packageRoot/);
-    // And rollback must refuse anything that is not package-manager driveable.
-    expect(src).toMatch(/rollbackStrategy\.kind !== 'package-manager'/);
+    expect(src).not.toContain('resolveGlobalInstallPlan(');
+    expect(src).not.toContain('runGlobalInstall(');
+    expect(src).toContain("runStrategy.kind === 'package-manager'");
+    expect(src).toContain("error: 'fork_binary_install_required'");
+    expect(src).toContain("rollbackStrategy.kind !== 'self-replace'");
+    expect(src).toContain('replaceStandaloneBinary(targetVersion, rollbackStrategy.target)');
   });
 });
 
@@ -859,7 +811,7 @@ describe('replaceStandaloneBinary — atomic swap of a live executable', () => {
       .toEqual(['botmux']);
   });
 
-  it('a truncated download (no checksum published) is rejected, not installed', async () => {
+  it('a missing checksum is rejected before the working binary is replaced', async () => {
     // GitHub serving an HTML error page is the real shape here: a few hundred
     // bytes that would replace a working 100MB+ executable.
     const dir = tmp();
@@ -868,7 +820,7 @@ describe('replaceStandaloneBinary — atomic swap of a live executable', () => {
     await expect(replaceStandaloneBinary('3.99.0', target, {
       fetchStream: async () => Readable.from([Buffer.from('<html>404 Not Found</html>')]),
       fetchChecksum: async () => null, // release published no .sha256
-    })).rejects.toThrow(/字节/);
+    })).rejects.toThrow(/required SHA-256 checksum is missing or invalid/);
     expect(readFileSync(target, 'utf-8')).toBe('OLD BINARY');
   });
 

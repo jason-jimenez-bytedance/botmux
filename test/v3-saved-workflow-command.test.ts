@@ -95,6 +95,13 @@ describe('parseV3SavedWorkflowCommand', () => {
     expect(error).toContain('静态归档');
   });
 
+  it('renders parser failures and usage in the bot locale', () => {
+    const english = parseV3SavedWorkflowCommand('/workflow cancel', 'en');
+    expect(english).toEqual({ kind: 'invalid', error: 'Usage: /workflow cancel <runId>' });
+    const chinese = parseV3SavedWorkflowCommand('/workflow cancel', 'zh');
+    expect(chinese && 'error' in chinese ? chinese.error : '').toContain('用法：');
+  });
+
   it('treats words before the first key=value as the saved name', () => {
     expect(parseV3SavedWorkflowCommand('/workflow run run the tests and report')).toMatchObject({
       kind: 'run', ref: 'run the tests and report', rawParams: {},

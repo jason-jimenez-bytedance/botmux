@@ -138,7 +138,7 @@ import {
   normalizeQuotaFallbackBotConfig,
   type QuotaFallbackBotConfig,
 } from '../services/quota-fallback.js';
-import { setDefaultLocale, localeForBot, t } from '../i18n/index.js';
+import { DEFAULT_LOCALE, setDefaultLocale, localeForBot, t } from '../i18n/index.js';
 import { isLocale, type Locale } from '../i18n/types.js';
 import { readGlobalConfig } from '../global-config.js';
 import { normalizeChatReplyMode, setChatReplyMode, type ChatReplyMode } from '../services/chat-reply-mode-store.js';
@@ -8124,14 +8124,14 @@ ipcRoute('PUT', '/api/bot-backend-type', async (req, res) => {
 
 // 实时切换 UI 语言（locale），无需重启 daemon。`botmux lang` / Dashboard 语言开关
 // 写盘后 POST 这个端点，让本 daemon 从磁盘重新读 locale 并热更新：
-//   • 全局默认（~/.botmux/config.json 的 `lang`）→ setDefaultLocale（缺省回落 'zh'）；
+//   • 全局默认（~/.botmux/config.json 的 `lang`）→ setDefaultLocale（缺省回落产品默认）；
 //   • 本 bot 的 per-bot 覆盖（bots.json 的 `lang`）→ 同步进内存 bot.config.lang
 //     （与 applyConfigField 同口径），让 `botmux lang --bot N` 跨进程写入也免重启。
 // 卡片都在 daemon 端按消息实时渲染（localeForBot），所以下一条消息/卡片立即生效。
 // 文件是单一事实源，本端点只是“立即重读”信号——不在此落盘（写入方已落盘）。
 ipcRoute('POST', '/api/locale/reload', async (_req, res) => {
   const globalLang = readGlobalConfig().lang;
-  const resolvedDefault: Locale = isLocale(globalLang) ? globalLang : 'zh';
+  const resolvedDefault: Locale = isLocale(globalLang) ? globalLang : DEFAULT_LOCALE;
   setDefaultLocale(resolvedDefault);
 
   let botLang: Locale | null = null;

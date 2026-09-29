@@ -27,7 +27,7 @@ describe('v3 parameter distillation proposal card', () => {
           { category: 'spec_narrative', ordinal: 2 },
         ],
       }],
-    })) as Record<string, unknown>;
+    }, 'zh')) as Record<string, unknown>;
     const raw = JSON.stringify(card);
 
     expect(raw).toContain('city');

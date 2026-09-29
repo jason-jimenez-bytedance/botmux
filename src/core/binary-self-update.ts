@@ -204,8 +204,8 @@ export interface BinarySelfUpdateDeps {
  *
  * Checksum verification happens BEFORE the rename, so a truncated or tampered
  * download is discarded while the working binary is still in place. A release
- * that publishes no `.sha256` is a warning, not a failure — matching install.sh,
- * which has always tolerated that.
+ * without a valid `.sha256` is rejected; Workbench must never activate an
+ * artifact whose contents are not verified.
  *
  * ── WHY NO `realpathSync(target)` ─────────────────────────────────────────────
  * Renaming over a SYMLINK replaces the link itself and orphans its target
@@ -238,7 +238,7 @@ export async function replaceStandaloneBinary(
       const first = Buffer.concat(chunks).toString('utf-8').trim().split(/\s+/)[0] ?? '';
       return /^[0-9a-f]{64}$/i.test(first) ? first.toLowerCase() : null;
     } catch {
-      return null; // no checksum published (or unreachable) → warn, don't fail
+      return null;
     }
   });
   const probeBinary = deps.probeBinary ?? ((path: string) => spawnSync(path, ['--version'], {
@@ -256,18 +256,19 @@ export async function replaceStandaloneBinary(
     const res = await fetchStream(`${base}/${asset}`);
     await pipeline(res, createWriteStream(tmp));
     const expected = await fetchChecksum(`${base}/${asset}.sha256`);
-    if (expected) {
-      const actual = await sha256File(tmp);
-      if (actual !== expected) {
-        throw new Error(`${asset} SHA-256 校验不通过（期望 ${expected}，实际 ${actual}）`);
-      }
+    if (!expected) {
+      throw new Error(`required SHA-256 checksum is missing or invalid for ${asset}`);
+    }
+    const actual = await sha256File(tmp);
+    if (actual !== expected) {
+      throw new Error(`${asset} SHA-256 verification failed (expected ${expected}, got ${actual})`);
     }
     const bytes = statSync(tmp).size;
     // A truncated download that still passed (no checksum published) would leave
     // an unrunnable binary in place of a working one. The real assets are ~100MB+;
     // anything under a megabyte is a GitHub error page, not an executable.
     if (bytes < 1_000_000) {
-      throw new Error(`${asset} 下载内容异常（仅 ${bytes} 字节，疑似错误页而非二进制）`);
+      throw new Error(`${asset} download is unexpectedly small (${bytes} bytes; likely an error page)`);
     }
     chmodSync(tmp, 0o755);
     // Asset name + checksum prove identity, not runtime compatibility. In
@@ -279,7 +280,7 @@ export async function replaceStandaloneBinary(
     if (probe.error || probe.status !== 0) {
       const raw = probe.error?.message || probe.stderr || `exit ${probe.status ?? probe.signal ?? 'unknown'}`;
       const detail = String(raw).trim().split('\n').slice(0, 8).join(' | ');
-      throw new Error(`${asset} 与当前主机不兼容，保留现有版本：${detail || 'candidate probe failed'}`);
+      throw new Error(`${asset} is incompatible with this host; the existing version was preserved: ${detail || 'candidate probe failed'}`);
     }
     // Atomic swap. NOT a write to `target` — that is ETXTBSY (see header).
     renameSync(tmp, target);

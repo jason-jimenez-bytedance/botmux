@@ -472,9 +472,9 @@ import {
   parseWorkflowGrillTrigger,
   buildWorkflowGrillPrompt,
   isLegacyTemplateCommand,
-  LEGACY_TEMPLATE_RETIRED_MESSAGE,
-  WORKFLOW_USAGE,
-  WORKFLOW_DISABLED_MESSAGE,
+  legacyTemplateRetiredMessage,
+  workflowUsage,
+  workflowDisabledMessage,
 } from './im/lark/workflow-slash-command.js';
 import {
   parseV3SavedWorkflowCommand,
@@ -4949,7 +4949,7 @@ function stableV3DistillationErrorCode(error: unknown): string {
   return 'UNKNOWN_ERROR';
 }
 
-function buildV3DistillationReviewCard(proposed: ProposedV3WorkflowDistillation): string {
+function buildV3DistillationReviewCard(proposed: ProposedV3WorkflowDistillation, larkAppId: string): string {
   return buildV3DistillationProposalCard({
     proposalId: proposed.proposalId,
     nonce: proposed.nonce,
@@ -4964,7 +4964,7 @@ function buildV3DistillationReviewCard(proposed: ProposedV3WorkflowDistillation)
         ordinal: field.nodeOrdinal,
       })),
     })),
-  });
+  }, localeForBot(larkAppId));
 }
 
 async function deliverV3DistillationReviewCard(input: {
@@ -4972,7 +4972,7 @@ async function deliverV3DistillationReviewCard(input: {
   larkAppId: string;
   anchor: string;
 }): Promise<void> {
-  const card = buildV3DistillationReviewCard(input.proposed);
+  const card = buildV3DistillationReviewCard(input.proposed, input.larkAppId);
   const uuid = `v3-distill-${input.proposed.proposalId}`;
   if (input.anchor.startsWith('oc_')) {
     await sendMessage(input.larkAppId, input.anchor, card, 'interactive', uuid);
@@ -5152,7 +5152,8 @@ async function handleV3SavedWorkflowCommandIfAny(
     memberUnionId,
     botSender,
   } = invocation;
-  const command = parseV3SavedWorkflowCommand(content);
+  const locale = localeForBot(larkAppId);
+  const command = parseV3SavedWorkflowCommand(content, locale);
   if (!command) return false;
 
   const targets = resolveV3SavedWorkflowMessageTargets({ anchor, replyRootId, messageId });
@@ -5175,18 +5176,18 @@ async function handleV3SavedWorkflowCommandIfAny(
   };
 
   if (command.kind === 'invalid') {
-    await notify(`❌ ${command.error}\n\n${v3SavedWorkflowUsage()}`, 'validation');
+    await notify(`❌ ${command.error}\n\n${v3SavedWorkflowUsage(locale)}`, 'validation');
     return true;
   }
   if (!initiatorOpenId) {
-    await notify('❌ Saved Workflow 需要可验证的飞书用户身份。', 'authorization');
+    await notify(`❌ ${tr('workflow.v3.saved.auth.identity', undefined, locale)}`, 'authorization');
     return true;
   }
   // Machine-wide workflow kill-switch: refuse starting/authoring a workflow when
   // the feature is off. `cancel` (and other decrease-only management) stays
   // available so an in-flight run started before the flip can be wound down.
   if ((command.kind === 'save' || command.kind === 'run') && !isWorkflowFeatureEnabled()) {
-    await notify(WORKFLOW_DISABLED_MESSAGE, 'validation');
+    await notify(workflowDisabledMessage(locale), 'validation');
     return true;
   }
   if (
@@ -5216,7 +5217,7 @@ async function handleV3SavedWorkflowCommandIfAny(
   });
   if (!policy.ok) {
     if (policy.reason === 'global_requires_operate') {
-      await notify('❌ 只有本群可操作成员才能使用 `--global` 发布当前 Bot 全局 Saved Workflow。', 'authorization');
+      await notify(`❌ ${tr('workflow.v3.saved.auth.global', undefined, locale)}`, 'authorization');
     }
     // Quota denial owns its exhausted-card notification in the shared quota
     // gate; avoid a second reply here.
@@ -5233,7 +5234,7 @@ async function handleV3SavedWorkflowCommandIfAny(
   const baseDir = v3DefaultBaseDir();
   if (command.kind === 'save' && command.distill) {
     if (!command.displayName) {
-      await notify('❌ 参数蒸馏必须显式指定模板名称。', 'validation');
+      await notify(`❌ ${tr('workflow.v3.saved.distill.name_required', undefined, locale)}`, 'validation');
       return true;
     }
     const distillationBot = loadBotConfigs().find((candidate) => candidate.larkAppId === larkAppId);
@@ -5242,14 +5243,14 @@ async function handleV3SavedWorkflowCommandIfAny(
       distillationBot.cliId !== 'claude-code' || Boolean(distillationBot.wrapperCli?.trim()) ||
       Boolean(distillationBot.cliPathOverride?.trim())
     ) {
-      await notify('❌ 参数蒸馏 P0 目前只支持 Linux 上未使用启动 wrapper 的 Claude Code Bot。', 'validation');
+      await notify(`❌ ${tr('workflow.v3.distill.error.unsupported', undefined, locale)}`, 'validation');
       return true;
     }
     let distillationBotSnapshot: ReturnType<typeof botToSnapshot>;
     try {
       distillationBotSnapshot = botToSnapshot(distillationBot);
     } catch {
-      await notify('❌ 当前 Bot 的 Workflow 权限配置不支持参数蒸馏。', 'authorization');
+      await notify(`❌ ${tr('workflow.v3.saved.distill.permission', undefined, locale)}`, 'authorization');
       return true;
     }
     const distillationProviderEnv = { ...(distillationBot.env ?? {}) };
@@ -5268,10 +5269,10 @@ async function handleV3SavedWorkflowCommandIfAny(
       });
     } catch (err) {
       logger.warn(`[v3-distillation] prepare failed: ${stableV3DistillationErrorCode(err)}`);
-      await notify(`❌ ${v3DistillationUserErrorMessage(err, 'prepare')}`, 'failed');
+      await notify(`❌ ${v3DistillationUserErrorMessage(err, 'prepare', locale)}`, 'failed');
       return true;
     }
-    await notify(`⏳ 正在分析可复用参数：\`${prepared.proposalId}\`。生成后会发送确认卡片；确认前不会创建 Saved Workflow。`, 'read_completed');
+    await notify(tr('workflow.v3.saved.distill.analyzing', { proposalId: prepared.proposalId }, locale), 'read_completed');
     void launchV3DistillationGeneration({
       proposalId: prepared.proposalId,
       dataDir,
@@ -5280,12 +5281,12 @@ async function handleV3SavedWorkflowCommandIfAny(
       anchor: targets.replyAnchor,
       botSnapshot: distillationBotSnapshot,
       providerEnv: distillationProviderEnv,
-      onFailure: (error) => notify(`❌ ${v3DistillationUserErrorMessage(error, 'generate')}`, 'failed'),
+      onFailure: (error) => notify(`❌ ${v3DistillationUserErrorMessage(error, 'generate', locale)}`, 'failed'),
     });
     return true;
   }
   const result = await executeV3SavedWorkflowCommand(
-    { command, dataDir, baseDir, context, operatorCanOperate },
+    { command, dataDir, baseDir, context, operatorCanOperate, locale },
     {
       ...defaultV3SavedWorkflowExecutionServices,
       loadBots: loadBotConfigs,
@@ -5604,7 +5605,10 @@ const v3ProgressCardManager = new V3ProgressCardManager({
             chat: buildV3RunSaveActionValue(loaded.envelope, 'chat'),
           }
         : undefined;
-    return buildV3ProgressCard(view, saveActions ? { saveActions } : {});
+    return buildV3ProgressCard(view, {
+      ...(saveActions ? { saveActions } : {}),
+      locale: localeForBot(binding?.larkAppId),
+    });
   },
   onError: (runId, err) => {
     logger.warn(`[v3:${runId}] progress card failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -5626,6 +5630,7 @@ const v3GateRunner = createV3GateRunner({
       approveOptions: gate.approveOptions,
       approvers: gate.approvers,
       hostApproval: gate.hostApproval,
+      locale: localeForBot(binding.larkAppId),
     });
     // codex blocker #3: never silently skip — a missing rootMessageId would
     // leave the run stuck at awaitingGate forever.  Reply in-thread when we have
@@ -5647,6 +5652,7 @@ const v3GateRunner = createV3GateRunner({
       retryForbidden: info.retryForbidden,
       // human-ask 受阻 → 渲染问题 + 选项按钮卡（替代纯重试卡）。
       ...(info.ask ? { ask: info.ask } : {}),
+      locale: localeForBot(binding.larkAppId),
     });
     if (binding.rootMessageId) {
       await sessionReply(binding.rootMessageId, card, 'interactive', binding.larkAppId);
@@ -5662,6 +5668,7 @@ const v3GateRunner = createV3GateRunner({
       maxIterations: info.maxIterations,
       granted: info.granted,
       detail: info.detail,
+      locale: localeForBot(binding.larkAppId),
     });
     if (binding.rootMessageId) {
       await sessionReply(binding.rootMessageId, card, 'interactive', binding.larkAppId);
@@ -5677,6 +5684,7 @@ const v3GateRunner = createV3GateRunner({
       tier: info.tier,
       attemptId: info.attemptId,
       detail: info.detail,
+      locale: localeForBot(binding.larkAppId),
     });
     if (binding.rootMessageId) {
       await sessionReply(binding.rootMessageId, card, 'interactive', binding.larkAppId);
@@ -21795,22 +21803,22 @@ async function handleNewTopicAdmitted(data: any, ctx: RoutingContext): Promise<v
   const newTopicGrill = parseWorkflowGrillTrigger(cmdContent);
   if (newTopicGrill) {
     if (!isWorkflowFeatureEnabled()) {
-      await sessionReply(anchor, WORKFLOW_DISABLED_MESSAGE, 'text', larkAppId);
+      await sessionReply(anchor, workflowDisabledMessage(localeForBot(larkAppId)), 'text', larkAppId);
       return;
     }
     if (await replyGrantRestrictionIfNeeded(larkAppId, chatId, senderOpenId, anchor, '/workflow')) {
       return;
     }
     if (newTopicGrill.kind === 'usage') {
-      await sessionReply(anchor, WORKFLOW_USAGE, 'text', larkAppId);
+      await sessionReply(anchor, workflowUsage(localeForBot(larkAppId)), 'text', larkAppId);
       return;
     }
-    workflowGrillPrompt = buildWorkflowGrillPrompt(newTopicGrill.goal);
+    workflowGrillPrompt = buildWorkflowGrillPrompt(newTopicGrill.goal, localeForBot(larkAppId));
     content = workflowGrillPrompt;
     // 保留原 cmdContent（"/workflow new …"）供 title/日志；/workflow 非注册命令，
     // 下面的 parseSlashCommandInvocation 会让它落到正常 spawn 路径。
   } else if (isLegacyTemplateCommand(cmdContent)) {
-    await sessionReply(anchor, LEGACY_TEMPLATE_RETIRED_MESSAGE, 'text', larkAppId);
+    await sessionReply(anchor, legacyTemplateRetiredMessage(localeForBot(larkAppId)), 'text', larkAppId);
     return;
   }
 
@@ -23946,17 +23954,17 @@ async function handleThreadReplyAdmitted(
   const threadGrill = parseWorkflowGrillTrigger(cmdContent);
   if (threadGrill) {
     if (!isWorkflowFeatureEnabled()) {
-      await sessionReply(anchor, WORKFLOW_DISABLED_MESSAGE, 'text', larkAppId);
+      await sessionReply(anchor, workflowDisabledMessage(localeForBot(larkAppId)), 'text', larkAppId);
       return;
     }
     if (await replyGrantRestrictionIfNeeded(larkAppId, threadChatId, threadSenderOpenId, anchor, '/workflow')) {
       return;
     }
     if (threadGrill.kind === 'usage') {
-      await sessionReply(anchor, WORKFLOW_USAGE, 'text', larkAppId);
+      await sessionReply(anchor, workflowUsage(localeForBot(larkAppId)), 'text', larkAppId);
       return;
     }
-    const workflowPrompt = buildWorkflowGrillPrompt(threadGrill.goal);
+    const workflowPrompt = buildWorkflowGrillPrompt(threadGrill.goal, localeForBot(larkAppId));
     // Legacy/non-clean paths still need daemon-owned VC lifecycle context.
     // For clean Codex App, keep that trusted context in the application lane
     // and expose only quote/bot prefixes + the generated workflow prompt as
@@ -23967,7 +23975,7 @@ async function handleThreadReplyAdmitted(
     rewrittenCodexAppMessageContext = initialCodexAppMessageContext + workflowPrompt;
     // fall through to normal forwarding with the rewritten promptContent
   } else if (isLegacyTemplateCommand(cmdContent)) {
-    await sessionReply(anchor, LEGACY_TEMPLATE_RETIRED_MESSAGE, 'text', larkAppId);
+    await sessionReply(anchor, legacyTemplateRetiredMessage(localeForBot(larkAppId)), 'text', larkAppId);
     return;
   }
 

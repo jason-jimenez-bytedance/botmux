@@ -1,5 +1,7 @@
 /** Safe, proposal-only card for v3 parameter distillation. */
 
+import { DEFAULT_LOCALE, t, type Locale } from '../../i18n/index.js';
+
 export const V3_DISTILL_ACCEPT_ACTION = 'v3_distill_accept';
 export const V3_DISTILL_REJECT_ACTION = 'v3_distill_reject';
 
@@ -157,12 +159,12 @@ function normalizeSafeCardInput(input: V3DistillationProposalCardInput): V3Disti
   return { proposalId, nonce, parameters };
 }
 
-function categoryLabel(field: V3DistillationFieldCategoryRef): string {
+function categoryLabel(field: V3DistillationFieldCategoryRef, locale: Locale): string {
   const category = field.category === 'goal'
-    ? '任务目标'
+    ? t('workflow.v3.distill.category.goal', undefined, locale)
     : field.category === 'system_prompt_append'
-      ? '系统补充指令'
-      : '流程说明';
+      ? t('workflow.v3.distill.category.system_prompt', undefined, locale)
+      : t('workflow.v3.distill.category.narrative', undefined, locale);
   return `${category} #${field.ordinal}`;
 }
 
@@ -173,16 +175,17 @@ function actionValue(
   return { action, proposalId: input.proposalId, nonce: input.nonce };
 }
 
-export function buildV3DistillationProposalCard(input: V3DistillationProposalCardInput): string {
+export function buildV3DistillationProposalCard(input: V3DistillationProposalCardInput, locale: Locale = DEFAULT_LOCALE): string {
   const safe = normalizeSafeCardInput(input);
   const parameterElements = safe.parameters.map((parameter) => ({
     tag: 'div',
     text: {
       tag: 'lark_md',
-      content:
-        `**${parameter.name}** · string · 必填 · 无默认值\n` +
-        `执行字段：${parameter.fieldCategories.map(categoryLabel).join('、')}；` +
-        `DAG/流程说明共替换 ${parameter.replacementCount} 处`,
+      content: t('workflow.v3.distill.parameter', {
+        name: parameter.name,
+        fields: parameter.fieldCategories.map(field => categoryLabel(field, locale)).join(locale === 'en' ? ', ' : '、'),
+        count: parameter.replacementCount,
+      }, locale),
     },
   }));
 
@@ -190,14 +193,14 @@ export function buildV3DistillationProposalCard(input: V3DistillationProposalCar
     config: { wide_screen_mode: true },
     header: {
       template: 'orange',
-      title: { tag: 'plain_text', content: '确认参数化方案' },
+      title: { tag: 'plain_text', content: t('workflow.v3.distill.confirm_title', undefined, locale) },
     },
     elements: [
       {
         tag: 'note',
         elements: [{
           tag: 'plain_text',
-          content: '这里只展示参数名、类型和替换位置类别，不展示原值、节点标识或内部路径。',
+          content: t('workflow.v3.distill.safe_note', undefined, locale),
         }],
       },
       ...parameterElements,
@@ -206,13 +209,13 @@ export function buildV3DistillationProposalCard(input: V3DistillationProposalCar
         actions: [
           {
             tag: 'button',
-            text: { tag: 'plain_text', content: '确认并保存到本群' },
+            text: { tag: 'plain_text', content: t('workflow.v3.distill.confirm', undefined, locale) },
             type: 'primary',
             value: actionValue(V3_DISTILL_ACCEPT_ACTION, safe),
           },
           {
             tag: 'button',
-            text: { tag: 'plain_text', content: '放弃' },
+            text: { tag: 'plain_text', content: t('workflow.v3.distill.reject', undefined, locale) },
             type: 'default',
             value: actionValue(V3_DISTILL_REJECT_ACTION, safe),
           },
@@ -226,31 +229,31 @@ export function buildV3DistillationCommittedCard(input: {
   displayName: string;
   workflowId: string;
   revisionId: string;
-}): string {
+}, locale: Locale = DEFAULT_LOCALE): string {
   if (
     typeof input.displayName !== 'string' || input.displayName.length < 1 || input.displayName.length > 128 ||
     !/^wf_[0-9a-f]{32}$/.test(input.workflowId) || !/^rev_[0-9a-f]{64}$/.test(input.revisionId)
   ) throw new Error('参数蒸馏保存结果不合法');
   return JSON.stringify({
     config: { wide_screen_mode: true },
-    header: { template: 'green', title: { tag: 'plain_text', content: '已保存参数化 Workflow' } },
+    header: { template: 'green', title: { tag: 'plain_text', content: t('workflow.v3.distill.saved_title', undefined, locale) } },
     elements: [
       { tag: 'div', text: { tag: 'plain_text', content: input.displayName } },
       { tag: 'note', elements: [{
         tag: 'plain_text',
-        content: `workflowId: ${input.workflowId}\nrevision: ${input.revisionId}\nscope: 本群`,
+        content: `workflowId: ${input.workflowId}\nrevision: ${input.revisionId}\n${t('workflow.v3.distill.scope_chat', undefined, locale)}`,
       }] },
     ],
   });
 }
 
-export function buildV3DistillationRejectedCard(): string {
+export function buildV3DistillationRejectedCard(locale: Locale = DEFAULT_LOCALE): string {
   return JSON.stringify({
     config: { wide_screen_mode: true },
-    header: { template: 'grey', title: { tag: 'plain_text', content: '已放弃参数化方案' } },
+    header: { template: 'grey', title: { tag: 'plain_text', content: t('workflow.v3.distill.rejected_title', undefined, locale) } },
     elements: [{
       tag: 'note',
-      elements: [{ tag: 'plain_text', content: '未创建或修改任何 Saved Workflow。' }],
+      elements: [{ tag: 'plain_text', content: t('workflow.v3.distill.rejected_note', undefined, locale) }],
     }],
   });
 }

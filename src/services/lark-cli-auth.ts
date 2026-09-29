@@ -40,6 +40,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { atomicWriteFileSync } from '../utils/atomic-write.js';
+import { getDefaultLocale } from '../i18n/index.js';
 import { logger } from '../utils/logger.js';
 import { isUsableOpenId } from '../utils/user-token.js';
 
@@ -292,7 +293,7 @@ function ensureBootstrapped(openId: string): boolean {
           appId: src.appId,
           appSecret: src.appSecret,
           brand: src.brand ?? 'feishu',
-          lang: src.lang ?? 'zh',
+          lang: src.lang ?? getDefaultLocale(),
           users: [],
         };
       }
@@ -301,7 +302,7 @@ function ensureBootstrapped(openId: string): boolean {
       appEntry = {
         appId: machine.appId,
         brand: 'feishu',
-        lang: 'zh',
+        lang: getDefaultLocale(),
         // Without a reference to the encrypted-secret pointer, the CLI treats
         // this as not configured. The encrypted files were copied above; a
         // machine lacking a readable source config never reaches this path.

@@ -9,12 +9,32 @@ permissions:
   contents: write
 
 jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.22.3
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run test:bun:self-check
+      - run: bun run test
+
   native:
+    needs: quality
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             targets: bun-linux-x64
             artifact: linux-x64
             linux_baseline: true
@@ -31,11 +51,17 @@ jobs:
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag provenance
+        run: test "$(git rev-parse HEAD)" = "$(git rev-parse \"${GITHUB_REF_NAME}^{commit}\")"
 
       - uses: actions/setup-node@v6
         if: matrix.linux_baseline == false
         with:
-          node-version: 22
+          node-version: 22.22.3
 
       - uses: oven-sh/setup-bun@v2
         if: matrix.linux_baseline == false
@@ -77,6 +103,13 @@ jobs:
             codesign --verify --strict --verbose=2 "$file"
           done
 
+      - name: Smoke-test every native artifact
+        run: |
+          for file in dist-bin/botmux-*; do
+            case "$file" in *.map|*.sha256) continue;; esac
+            node scripts/smoke-bun-binary.mjs "$file"
+          done
+
       - name: Create checksums
         run: |
           cd dist-bin
@@ -96,11 +129,12 @@ jobs:
           if-no-files-found: error
 
   musl:
+    needs: quality
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: bun-linux-x64-musl
             artifact: linux-x64-musl
           - os: ubuntu-24.04-arm
@@ -111,6 +145,12 @@ jobs:
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag provenance
+        run: test "$(git rev-parse HEAD)" = "$(git rev-parse \"${GITHUB_REF_NAME}^{commit}\")"
 
       - name: Build inside Alpine
         run: |
@@ -119,7 +159,7 @@ jobs:
             -e RELEASE_TAG \
             -e TARGET="${{ matrix.target }}" \
             -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
-            node:22-alpine sh -euc '
+            node:22.22.0-alpine3.22@sha256:7aa86fa052f6e4b101557ccb56717cb4311be1334381f526fe013418fe157384 sh -euc '
               apk add --no-cache python3 make g++ libstdc++ binutils >/dev/null
               npm i -g bun@1.4.2 --loglevel=error
               bun install --frozen-lockfile
@@ -129,6 +169,7 @@ jobs:
               bun scripts/build-bun-binary.mjs \
                 --target "$TARGET" \
                 --out "dist-bin/botmux-${TARGET#bun-}"
+              node scripts/smoke-bun-binary.mjs "dist-bin/botmux-${TARGET#bun-}"
               chown -R "$HOST_UID:$HOST_GID" dist-bin
             '
 
@@ -149,6 +190,11 @@ jobs:
     needs: [native, musl]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - uses: actions/download-artifact@v4
         with:
           pattern: botmux-*
@@ -164,12 +210,36 @@ jobs:
             test -f "release-assets/$asset"
             test -f "release-assets/$asset.sha256"
           done
+          (cd release-assets && sha256sum -c ./*.sha256)
+          node scripts/generate-release-manifest.mjs \
+            --dir release-assets \
+            --repo "$GITHUB_REPOSITORY" \
+            --commit "$(git rev-parse HEAD)" \
+            --version "${GITHUB_REF_NAME#v}" \
+            --traex-version "0.207.1"
 
-      - name: Publish GitHub release
+      - name: Refuse to overwrite an existing release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "REFUSING to overwrite existing release ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+
+      - name: Create complete draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=()
+          case "${GITHUB_REF_NAME}" in *-*) prerelease=(--prerelease);; esac
           gh release create "${GITHUB_REF_NAME}" release-assets/* \
             --repo "${GITHUB_REPOSITORY}" \
+            --draft \
+            "${prerelease[@]}" \
             --generate-notes \
             --title "${GITHUB_REF_NAME}"
+
+      # Deliberately stop at a complete draft. Workbench validates this exact
+      # tag/manifest on a disposable devbox before a human publishes it with:
+      #   gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false

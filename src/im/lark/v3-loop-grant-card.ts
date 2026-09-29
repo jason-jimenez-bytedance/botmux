@@ -11,6 +11,7 @@
 
 import { config } from '../../config.js';
 import { buildV3RunDetailUrl } from '../../core/dashboard-url.js';
+import { DEFAULT_LOCALE, t, type Locale } from '../../i18n/index.js';
 
 export const V3_LOOP_GRANT_ACTION = 'v3_loop_grant';
 
@@ -41,6 +42,7 @@ export interface V3LoopGrantCardInput {
   detailMaxChars?: number;
   /** 有值 → 渲染冻结的「已追加」卡（无按钮，防 stale UI 重复提交）。 */
   grantedNow?: { nextIteration: number; by?: string };
+  locale?: Locale;
 }
 
 const DEFAULT_DETAIL_MAX_CHARS = 500;
@@ -56,12 +58,17 @@ function v3RunDetailUrl(runId: string): string {
 }
 
 export function buildV3LoopGrantCard(input: V3LoopGrantCardInput): string {
+  const locale = input.locale ?? DEFAULT_LOCALE;
   const nonce = input.nonce ?? v3LoopGrantCardNonce(input.runId, input.loopId, input.iteration);
   const webDetailUrl = input.webDetailUrl ?? v3RunDetailUrl(input.runId);
   const detailMax = input.detailMaxChars ?? DEFAULT_DETAIL_MAX_CHARS;
   const granted = input.grantedNow;
 
-  const title = granted ? `已追加一轮：loop ${input.loopId}` : `loop 轮数耗尽：${input.loopId}`;
+  const title = t(
+    granted ? 'workflow.v3.loop.title.granted' : 'workflow.v3.loop.title.exhausted',
+    { loop: input.loopId },
+    locale,
+  );
   // 与 blocked 重试卡同款语义色：耗尽=橙（可恢复），追加后转绿。
   const template = granted ? 'green' : 'orange';
 
@@ -74,7 +81,7 @@ export function buildV3LoopGrantCard(input: V3LoopGrantCardInput): string {
       tag: 'div',
       fields: [
         { is_short: true, text: { tag: 'lark_md', content: `**Run**\n${escapeMd(short(input.runId, 24))}` } },
-        { is_short: true, text: { tag: 'lark_md', content: `**Loop / 轮数**\n${escapeMd(input.loopId)} · ${escapeMd(budget)}` } },
+        { is_short: true, text: { tag: 'lark_md', content: `**${t('workflow.v3.loop.field', undefined, locale)}**\n${escapeMd(input.loopId)} · ${escapeMd(budget)}` } },
       ],
     },
     { tag: 'hr' },
@@ -83,8 +90,9 @@ export function buildV3LoopGrantCard(input: V3LoopGrantCardInput): string {
       text: {
         tag: 'lark_md',
         content:
-          `**最后一轮结果**\n未达成 exit 条件` +
-          (input.detail ? `\n${escapeMd(truncate(input.detail, detailMax))}` : ''),
+          t('workflow.v3.loop.last_result', {
+            detail: input.detail ? `\n${escapeMd(truncate(input.detail, detailMax, locale))}` : '',
+          }, locale),
       },
     },
   ];
@@ -96,8 +104,10 @@ export function buildV3LoopGrantCard(input: V3LoopGrantCardInput): string {
       text: {
         tag: 'lark_md',
         content:
-          `➕ 已追加 → 第 ${granted.nextIteration} 轮` +
-          (granted.by ? ` · by ${escapeMd(short(granted.by, 20))}` : ''),
+          t('workflow.v3.loop.granted_now', {
+            iteration: granted.nextIteration,
+            by: granted.by ? ` · by ${escapeMd(short(granted.by, 20))}` : '',
+          }, locale),
       },
     });
   } else {
@@ -105,7 +115,7 @@ export function buildV3LoopGrantCard(input: V3LoopGrantCardInput): string {
       tag: 'div',
       text: {
         tag: 'lark_md',
-        content: '点「追加 1 轮」会带着上一轮反馈再跑一轮；若结果已无修复价值，留着不点即可（run 保持受阻）。',
+        content: t('workflow.v3.loop.help', undefined, locale),
       },
     });
     elements.push({
@@ -113,7 +123,7 @@ export function buildV3LoopGrantCard(input: V3LoopGrantCardInput): string {
       actions: [
         {
           tag: 'button',
-          text: { tag: 'plain_text', content: '➕ 追加 1 轮' },
+          text: { tag: 'plain_text', content: t('workflow.v3.loop.button', undefined, locale) },
           type: 'primary',
           value: {
             action: V3_LOOP_GRANT_ACTION,
@@ -132,7 +142,7 @@ export function buildV3LoopGrantCard(input: V3LoopGrantCardInput): string {
     actions: [
       {
         tag: 'button',
-        text: { tag: 'plain_text', content: 'Web 详情（需登录）' },
+        text: { tag: 'plain_text', content: t('workflow.v3.button.web', undefined, locale) },
         type: 'default',
         multi_url: {
           url: webDetailUrl, pc_url: webDetailUrl, android_url: webDetailUrl, ios_url: webDetailUrl,
@@ -148,9 +158,9 @@ export function buildV3LoopGrantCard(input: V3LoopGrantCardInput): string {
   });
 }
 
-function truncate(s: string, max: number): string {
+function truncate(s: string, max: number, locale: Locale): string {
   if (s.length <= max) return s;
-  return `${s.slice(0, max)}…（截断，完整见 Web 详情）`;
+  return `${s.slice(0, max)}${t('workflow.v3.truncated', undefined, locale)}`;
 }
 
 function short(s: string, max: number): string {

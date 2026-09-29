@@ -13,6 +13,7 @@ import {
   isV3DistillationAction,
   parseV3DistillationActionValue,
 } from './v3-distillation-card.js';
+import { DEFAULT_LOCALE, localeForBot, t, type Locale } from '../../i18n/index.js';
 
 export { isV3DistillationAction } from './v3-distillation-card.js';
 
@@ -23,60 +24,61 @@ export interface V3DistillationCardHandlerDeps {
   onError?(proposalId: string, error: unknown): void;
 }
 
-function stale(): unknown {
-  return { toast: { type: 'warning', content: '参数化提案已失效，请重新发起。' } };
+function stale(locale: Locale): unknown {
+  return { toast: { type: 'warning', content: t('workflow.v3.distill.toast.stale', undefined, locale) } };
 }
 
-function denied(): unknown {
-  return { toast: { type: 'error', content: '无法验证操作人、Bot 或提案所在群。' } };
+function denied(locale: Locale): unknown {
+  return { toast: { type: 'error', content: t('workflow.v3.distill.toast.identity', undefined, locale) } };
 }
 
 /** Safe fixed copy only. Never reflect model, source, path, or provider text. */
 export function v3DistillationUserErrorMessage(
   error: unknown,
   phase: 'prepare' | 'generate' | 'approve',
+  locale: Locale = DEFAULT_LOCALE,
 ): string {
   const code = error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
     ? (error as { code: string }).code
     : '';
   switch (code) {
     case 'unsafe_display_name':
-      return '模板名称可能包含身份、凭据或机器本地信息，请换一个名称。';
+      return t('workflow.v3.distill.error.unsafe_name', undefined, locale);
     case 'source_changed':
     case 'SOURCE_CHANGED':
     case 'SOURCE_NOT_ELIGIBLE':
     case 'SOURCE_NOT_FOUND':
-      return '源 Workflow 已变化，或不是当前群中由你发起且已成功的 v3 run，请重新发起。';
+      return t('workflow.v3.distill.error.source_changed', undefined, locale);
     case 'UNSUPPORTED_PLATFORM':
     case 'UNSUPPORTED_CLI':
-      return '参数蒸馏目前只支持 Linux 上未使用启动 wrapper 的 Claude Code Bot。';
+      return t('workflow.v3.distill.error.unsupported', undefined, locale);
     case 'INVALID_MODEL_INPUT':
-      return '当前 Bot 的模型凭据模式暂不支持参数蒸馏；请配置独立 API Key、Bedrock 直连凭据或 Foundry API Key。';
+      return t('workflow.v3.distill.error.credentials', undefined, locale);
     case 'MANAGED_POLICY_UNSUPPORTED':
-      return '当前机器启用了 Claude 托管策略，无法证明无工具蒸馏边界，因此已拒绝运行。';
+      return t('workflow.v3.distill.error.managed_policy', undefined, locale);
     case 'SCRATCH_SETUP_FAILED':
     case 'SCRATCH_CLEANUP_FAILED':
-      return '参数蒸馏隔离环境不可用或未能安全清理；未创建 Saved Workflow，请联系管理员检查后重试。';
+      return t('workflow.v3.distill.error.scratch', undefined, locale);
     case 'MODEL_FAILED':
     case 'MODEL_OUTPUT_INVALID':
-      return '模型未能生成有效的参数提案；未创建 Saved Workflow，可以重新发起。';
+      return t('workflow.v3.distill.error.model', undefined, locale);
     case 'IDENTITY_BUSY':
-      return '该源 Workflow 已有提案正在确认或提交，请先完成当前提案。';
+      return t('workflow.v3.distill.error.busy', undefined, locale);
     case 'STALE_PROPOSAL':
     case 'STATE_CONFLICT':
     case 'proposal_not_ready':
-      return '参数化提案已失效，请重新发起。';
+      return t('workflow.v3.distill.error.proposal_stale', undefined, locale);
     case 'approval_denied':
-      return '只有源 Workflow 的发起人可以在原群和原 Bot 下确认该提案。';
+      return t('workflow.v3.distill.error.denied', undefined, locale);
     case 'commit_conflict':
     case 'CONTENT_CONFLICT':
-      return '提案与现有 Saved Workflow 不一致，已停止写入；请重新发起。';
+      return t('workflow.v3.distill.error.conflict', undefined, locale);
     default:
       return phase === 'prepare'
-        ? '无法从该 run 生成参数化提案；请检查源 run 后重试。'
+        ? t('workflow.v3.distill.error.prepare', undefined, locale)
         : phase === 'generate'
-          ? '参数化提案生成失败；未创建或修改任何 Saved Workflow。'
-          : '参数化提案无法继续处理，请重新发起。';
+          ? t('workflow.v3.distill.error.generate', undefined, locale)
+          : t('workflow.v3.distill.error.approve', undefined, locale);
   }
 }
 
@@ -87,15 +89,16 @@ export async function handleV3DistillationAction(
   cardMessageId: string | undefined,
   deps: V3DistillationCardHandlerDeps,
 ): Promise<unknown> {
+  const locale = localeForBot(receivingLarkAppId);
   const value = parseV3DistillationActionValue(rawValue);
-  if (!value) return stale();
-  if (!operatorOpenId || !receivingLarkAppId || !cardMessageId) return denied();
+  if (!value) return stale(locale);
+  if (!operatorOpenId || !receivingLarkAppId || !cardMessageId) return denied(locale);
 
   try {
     const chatId = await deps.resolveMessageChatId(receivingLarkAppId, cardMessageId);
-    if (!chatId) return denied();
+    if (!chatId) return denied(locale);
     const loaded = loadProposal(deps.dataDir, value.proposalId);
-    if (!loaded.proposal) return stale();
+    if (!loaded.proposal) return stale(locale);
     const proposalHash = loaded.proposal.proposalHash;
     if (value.action === V3_DISTILL_REJECT_ACTION) {
       rejectV3WorkflowDistillation({
@@ -107,9 +110,9 @@ export async function handleV3DistillationAction(
         larkAppId: receivingLarkAppId,
         chatId,
       });
-      return JSON.parse(buildV3DistillationRejectedCard());
+      return JSON.parse(buildV3DistillationRejectedCard(locale));
     }
-    if (value.action !== V3_DISTILL_ACCEPT_ACTION) return stale();
+    if (value.action !== V3_DISTILL_ACCEPT_ACTION) return stale(locale);
     const result = await acceptV3WorkflowDistillation({
       dataDir: deps.dataDir,
       baseDir: deps.baseDir,
@@ -120,13 +123,13 @@ export async function handleV3DistillationAction(
       larkAppId: receivingLarkAppId,
       chatId,
     });
-    return JSON.parse(buildV3DistillationCommittedCard(result));
+    return JSON.parse(buildV3DistillationCommittedCard(result, locale));
   } catch (error) {
     deps.onError?.(value.proposalId, error);
     return {
       toast: {
         type: 'warning',
-        content: v3DistillationUserErrorMessage(error, 'approve'),
+        content: v3DistillationUserErrorMessage(error, 'approve', locale),
       },
     };
   }

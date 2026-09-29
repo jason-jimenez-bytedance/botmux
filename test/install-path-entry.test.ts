@@ -483,13 +483,13 @@ describe('install.sh — executed end to end (offline fixture)', () => {
     write('uname', 'case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; *) echo Linux ;; esac');
     // Claim glibc so the script does not pick the -musl asset.
     write('ldd', 'echo "ldd (GNU libc) 2.36"');
-    // `curl -fSL <url> -o <file>` writes a stand-in binary; the .sha256 fetch fails
-    // (exit 1) so the script takes its documented "no checksum published" path.
+    // `curl -fSL <url> -o <file>` writes a stand-in binary and then a checksum
+    // for those exact bytes. The downstream installer fails closed without it.
     write('curl', [
       'out=""; url=""',
       'while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac; done',
-      'case "$url" in *.sha256) exit 1 ;; esac',
       '[ -n "$out" ] || exit 1',
+      'case "$url" in *.sha256) sha256sum "${out%.sha256}" | sed "s#  .*#  botmux-linux-x64#" > "$out"; exit $? ;; esac',
       'printf "#!/bin/sh\\nif [ \\\"${BOTMUX_FIXTURE_BINARY_FAIL:-}\\\" = true ]; then echo GLIBC_2.34-not-found >&2; exit 42; fi\\necho BOTMUX_OK\\n" > "$out"',
     ].join('\n'));
     return bin;
@@ -522,6 +522,21 @@ describe('install.sh — executed end to end (offline fixture)', () => {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20_000,
     });
   }
+
+  it('requires an exact semantic version for Workbench-managed installs', () => {
+    const bin = fakeBinDir(home);
+    for (const version of ['latest', 'canary', '3.30', '3.30.1-..']) {
+      const result = spawnSync('/bin/sh', [join(__dirname, '..', 'install.sh')], {
+        env: {
+          PATH: `${bin}:/usr/bin:/bin`, HOME: home, SHELL: '/bin/dash',
+          BOTMUX_INSTALL_DIR: installDir, BOTMUX_REQUIRE_PINNED: '1', BOTMUX_VERSION: version,
+        },
+        encoding: 'utf8', timeout: 60_000,
+      });
+      expect(result.status, version).not.toBe(0);
+      expect(result.stderr, version).toContain('requires an exact');
+    }
+  });
 
   it('installs the binary and makes zsh find it — honouring $ZDOTDIR', () => {
     if (!existsSync('/usr/bin/zsh')) return;

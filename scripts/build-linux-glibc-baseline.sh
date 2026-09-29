@@ -18,12 +18,12 @@ version="${3:-}"
 
 case "$target" in
   bun-linux-x64)
-    image="quay.io/pypa/manylinux_2_28_x86_64:latest"
+    image="quay.io/pypa/manylinux_2_28_x86_64@sha256:407f771c51a2c3e83ebe5a7970b4289ead3a6db21d9b9c089168775cad11d328"
     node_arch="x64"
     expected_uname="x86_64"
     ;;
   bun-linux-arm64)
-    image="quay.io/pypa/manylinux_2_28_aarch64:latest"
+    image="quay.io/pypa/manylinux_2_28_aarch64@sha256:c22ffd129ac99a8a42d1f2c2f4e88a9089288dd9ee987a7092da1c7dc48f27a9"
     node_arch="arm64"
     expected_uname="aarch64"
     ;;
