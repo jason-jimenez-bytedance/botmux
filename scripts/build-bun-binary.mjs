@@ -56,7 +56,10 @@ const RELEASE_TARGETS = [
   'bun-linux-arm64',
   'bun-linux-x64-musl',
   'bun-linux-arm64-musl',
-  'bun-darwin-x64',
+  // GitHub's macOS runner exposes no AVX to the x64 binary under translation.
+  // The baseline target keeps the published x64 asset compatible there and on
+  // older Intel Macs while retaining the stable botmux-darwin-x64 filename.
+  'bun-darwin-x64-baseline',
   'bun-darwin-arm64',
 ];
 
@@ -220,7 +223,11 @@ async function buildOne({ target, out }) {
     throw new Error('dist/standalone-entry.js missing — run `bun run build` first (this bundles from dist/, it does not run tsc).');
   }
 
-  const outfile = out ?? join(REPO_ROOT, 'dist-bin', target ? target.replace(/^bun-/, 'botmux-') : 'botmux');
+  const outfile = out ?? join(
+    REPO_ROOT,
+    'dist-bin',
+    target ? target.replace(/^bun-/, 'botmux-').replace(/-baseline$/, '') : 'botmux',
+  );
   mkdirSync(dirname(outfile), { recursive: true });
 
   const baked = versionToBake();
