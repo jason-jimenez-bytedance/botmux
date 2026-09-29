@@ -21,6 +21,7 @@ import { requestV3Retry, blockedInfoFor, readV3RunChatBinding } from '../../work
 import { readJournal } from '../../workflows/v3/journal.js';
 import { defaultBaseDir, type RunChatBinding } from '../../workflows/v3/grill-state.js';
 import { isValidRunId } from '../../workflows/v3/ops-projection.js';
+import { getDefaultLocale, localeForBot, t } from '../../i18n/index.js';
 
 export function isV3BlockedAction(action: unknown): boolean {
   return action === V3_BLOCKED_RETRY_ACTION || action === V3_BLOCKED_ASK_ANSWER_ACTION;
@@ -56,20 +57,23 @@ export async function handleV3BlockedAction(
   // 同一张卡两条 action：普通重试 / human-ask 选项答题。后者额外带 selected，
   // 走同一条 requestV3Retry 通道（带 answer），只是冻结卡渲染不同。
   const isAsk = isV3AskAnswerValue(value);
-  const verb = isAsk ? '回答' : '重试';
   const baseDir = deps.baseDir ?? defaultBaseDir();
   if (!isValidRunId(value.runId)) {
-    return { toast: { type: 'warning', content: `${verb}已失效（非法 run）` } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.invalid_run', undefined, getDefaultLocale()) } };
   }
   // attempt 入 nonce：重试过的节点（attempt 已前进）的旧卡 nonce 对不上 → stale。
   if (value.nonce !== v3BlockedCardNonce(value.runId, value.nodeId, value.attemptId)) {
-    return { toast: { type: 'warning', content: `这张卡已失效（nonce 不匹配）` } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.stale_card', undefined, getDefaultLocale()) } };
   }
   const runDir = join(baseDir, value.runId);
   const binding = readV3RunChatBinding(runDir);
+  const locale = localeForBot(binding?.larkAppId);
+  const verb = isAsk
+    ? (locale === 'zh' ? '回答' : 'Answer')
+    : (locale === 'zh' ? '重试' : 'Retry');
 
   if (deps.canResolve && !deps.canResolve(binding, operatorOpenId)) {
-    return { toast: { type: 'warning', content: `你没有权限${verb}这个节点` } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.unauthorized_node', { action: verb }, locale) } };
   }
 
   const requestRetry = deps.requestRetry ?? requestV3Retry;
@@ -88,7 +92,7 @@ export async function handleV3BlockedAction(
         ? (typeof rawTextAnswer === 'string' ? rawTextAnswer.trim() : '')
         : undefined;
     if (isAsk && 'answerKind' in value && value.answerKind === 'text' && !textAnswer) {
-      return { toast: { type: 'warning', content: '请先填写答案' } };
+      return { toast: { type: 'warning', content: t('workflow.v3.toast.answer_required', undefined, locale) } };
     }
     if (isAsk) {
       if (textAnswer !== undefined) {
@@ -96,7 +100,7 @@ export async function handleV3BlockedAction(
       } else if ('selected' in value) {
         answer = { selected: value.selected, by: operatorOpenId ?? 'unknown' };
       } else {
-        return { toast: { type: 'warning', content: '这张卡已失效（答案类型不匹配）' } };
+        return { toast: { type: 'warning', content: t('workflow.v3.toast.answer_mismatch', undefined, locale) } };
       }
     }
     // expectedAttemptId（codex blocker）：nonce 只证明这张卡自身没被改，证不了
@@ -111,7 +115,7 @@ export async function handleV3BlockedAction(
     return {
       toast: {
         type: 'error',
-        content: `${verb}失败，请再试：${err instanceof Error ? err.message : String(err)}`,
+        content: t('workflow.v3.toast.action_failed', { action: verb, error: err instanceof Error ? err.message : String(err) }, locale),
       },
     };
   }
@@ -121,12 +125,12 @@ export async function handleV3BlockedAction(
       toast: {
         type: 'warning',
         content:
-          outcome.reason === 'missing' ? '该 run 不存在或已清理'
-          : outcome.reason === 'stale-attempt' ? '该节点已进入新一轮 attempt，这张旧卡失效（看最新那张卡）'
-          : outcome.reason === 'invalid-answer' ? '这个选项不属于当前问题，卡片已失效'
-          : outcome.reason === 'host-effect-uncertain' ? '该节点可能已产生外部副作用，禁止普通重试；请先完成 host effect 对账'
-          : outcome.reason === 'revise-workflow-required' ? '产物契约与 Workflow 定义不一致，禁止普通重试；请修订并发布新版本'
-          : `该节点已不在受阻状态，${verb}卡失效`,
+          outcome.reason === 'missing' ? t('workflow.v3.toast.run_missing', undefined, locale)
+          : outcome.reason === 'stale-attempt' ? t('workflow.v3.toast.stale_attempt', undefined, locale)
+          : outcome.reason === 'invalid-answer' ? t('workflow.v3.toast.invalid_answer', undefined, locale)
+          : outcome.reason === 'host-effect-uncertain' ? t('workflow.v3.toast.host_effect_uncertain', undefined, locale)
+          : outcome.reason === 'revise-workflow-required' ? t('workflow.v3.toast.revise_required', undefined, locale)
+          : t('workflow.v3.toast.node_not_blocked', { action: verb }, locale),
       },
     };
   }
@@ -134,7 +138,7 @@ export async function handleV3BlockedAction(
     // Idempotent: a prior click already reserved the retry — make sure the
     // run is actually moving (covers click → daemon crash → click after restart).
     deps.driveRun(value.runId);
-    return { toast: { type: 'info', content: isAsk ? '已回答，正在重跑' : '已在重试中' } };
+    return { toast: { type: 'info', content: t(isAsk ? 'workflow.v3.toast.answer_retrying' : 'workflow.v3.toast.retrying', undefined, locale) } };
   }
 
   // requested → drive the run (fresh replay re-dispatches with the reserved
@@ -156,6 +160,7 @@ export async function handleV3BlockedAction(
           nextAttemptId: outcome.nextAttemptId,
           by: operatorOpenId,
         },
+        locale,
       })
     : buildV3BlockedCard({
         runId: value.runId,
@@ -165,6 +170,7 @@ export async function handleV3BlockedAction(
         errorCode: info.errorCode,
         message: info.message,
         retried: { nextAttemptId: outcome.nextAttemptId, by: operatorOpenId },
+        locale,
       });
   return JSON.parse(frozen);
 }

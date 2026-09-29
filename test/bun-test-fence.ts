@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as realOs from 'node:os';
 import { fenceHomeRootedEnv } from './helpers/fence-home-env.js';
+import { setDefaultLocale } from '../src/i18n/index.js';
 
 /**
  * `bun test` counterpart of `test/unit-setup.ts`.
@@ -53,6 +54,10 @@ const fileHome = join(fileRoot, 'home');
 mkdirSync(fileHome);
 process.env.HOME = fileHome;
 process.env.USERPROFILE = fileHome;
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: { language: 'zh-CN', languages: ['zh-CN'] },
+});
 
 // HOME alone is not enough: BOTS_CONFIG / PM2_HOME and friends point straight at
 // a live home and bypass `homedir()` entirely (bot-registry treats BOTS_CONFIG as
@@ -115,6 +120,7 @@ process.env.BOTMUX_MOJO_WORKSPACE_ROOT = mojoWorkspaceRoot;
 // scope or in beforeAll must be captured once and then repaired per test.
 let fileDataDir = '';
 beforeEach(() => {
+  setDefaultLocale('zh');
   if (!fileDataDir) {
     const candidate = process.env.SESSION_DATA_DIR;
     fileDataDir = candidate && candidate !== inheritedDataDir ? candidate : dataDir;

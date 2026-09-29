@@ -18,6 +18,7 @@ import { requestV3LoopGrant, loopExhaustedInfoFor, readV3RunChatBinding } from '
 import { readJournal } from '../../workflows/v3/journal.js';
 import { defaultBaseDir, type RunChatBinding } from '../../workflows/v3/grill-state.js';
 import { isValidRunId } from '../../workflows/v3/ops-projection.js';
+import { getDefaultLocale, localeForBot, t } from '../../i18n/index.js';
 
 export function isV3LoopGrantAction(action: unknown): boolean {
   return action === V3_LOOP_GRANT_ACTION;
@@ -45,23 +46,24 @@ export async function handleV3LoopGrantAction(
 ): Promise<unknown> {
   const baseDir = deps.baseDir ?? defaultBaseDir();
   if (!isValidRunId(value.runId)) {
-    return { toast: { type: 'warning', content: '追加已失效（非法 run）' } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.invalid_run', undefined, getDefaultLocale()) } };
   }
   // 飞书卡片 value 回传可能把 number 落成 string —— 先归一化再比 nonce。
   const iteration =
     typeof value.iteration === 'number' ? value.iteration : parseInt(String(value.iteration), 10);
   if (!Number.isInteger(iteration) || iteration < 1) {
-    return { toast: { type: 'warning', content: '追加卡已失效（轮数非法）' } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.invalid_iteration', undefined, getDefaultLocale()) } };
   }
   // iteration 入 nonce：grant 被消费 / 新一轮再耗尽后，旧卡 nonce 对不上 → stale。
   if (value.nonce !== v3LoopGrantCardNonce(value.runId, value.loopId, iteration)) {
-    return { toast: { type: 'warning', content: '追加卡已失效（nonce 不匹配）' } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.stale_card', undefined, getDefaultLocale()) } };
   }
   const runDir = join(baseDir, value.runId);
   const binding = readV3RunChatBinding(runDir);
+  const locale = localeForBot(binding?.larkAppId);
 
   if (deps.canResolve && !deps.canResolve(binding, operatorOpenId)) {
-    return { toast: { type: 'warning', content: '你没有权限给这个 loop 追加轮数' } };
+    return { toast: { type: 'warning', content: t('workflow.v3.toast.unauthorized_loop', undefined, locale) } };
   }
 
   const requestGrant = deps.requestGrant ?? requestV3LoopGrant;
@@ -78,7 +80,10 @@ export async function handleV3LoopGrantAction(
     return {
       toast: {
         type: 'error',
-        content: `追加失败，请再试：${err instanceof Error ? err.message : String(err)}`,
+        content: t('workflow.v3.toast.action_failed', {
+          action: locale === 'zh' ? '追加' : 'Add round',
+          error: err instanceof Error ? err.message : String(err),
+        }, locale),
       },
     };
   }
@@ -88,9 +93,9 @@ export async function handleV3LoopGrantAction(
       toast: {
         type: 'warning',
         content:
-          outcome.reason === 'missing' ? '该 run 不存在或已清理'
-          : outcome.reason === 'stale-iteration' ? '该 loop 已进入新一轮，这张旧卡失效（看最新那张卡）'
-          : '该 loop 已不在耗尽状态，追加卡失效',
+          outcome.reason === 'missing' ? t('workflow.v3.toast.run_missing', undefined, locale)
+          : outcome.reason === 'stale-iteration' ? t('workflow.v3.toast.stale_iteration', undefined, locale)
+          : t('workflow.v3.toast.loop_not_exhausted', undefined, locale),
       },
     };
   }
@@ -98,7 +103,7 @@ export async function handleV3LoopGrantAction(
     // Idempotent: a prior click already reserved the extra round — make sure
     // the run is actually moving (covers click → daemon crash → click after restart).
     deps.driveRun(value.runId);
-    return { toast: { type: 'info', content: '已在追加重跑中' } };
+    return { toast: { type: 'info', content: t('workflow.v3.toast.loop_retrying', undefined, locale) } };
   }
 
   // granted → drive the run (fresh replay starts iteration N+1) + freeze this card.
@@ -111,6 +116,7 @@ export async function handleV3LoopGrantAction(
     iteration,
     detail: info.detail,
     grantedNow: { nextIteration: outcome.nextIteration, by: operatorOpenId },
+    locale,
   });
   return JSON.parse(frozen);
 }

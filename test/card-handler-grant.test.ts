@@ -70,7 +70,7 @@ beforeEach(() => {
   sendMock.mockClear();
   const dir = mkdtempSync(join(tmpdir(), 'botmux-cardgrant-'));
   configPath = join(dir, 'bots.json');
-  writeFileSync(configPath, JSON.stringify([{ larkAppId: 'h1', larkAppSecret: 's', cliId: 'claude-code', allowedUsers: ['ou_owner'] }], null, 2));
+  writeFileSync(configPath, JSON.stringify([{ larkAppId: 'h1', larkAppSecret: 's', cliId: 'claude-code', lang: 'zh', allowedUsers: ['ou_owner'] }], null, 2));
   process.env.BOTS_CONFIG = configPath;
 });
 afterEach(() => { delete process.env.BOTS_CONFIG; vi.restoreAllMocks(); });

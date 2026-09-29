@@ -153,12 +153,14 @@ describe('v3 parameter-distillation card handler', () => {
     expect(v3DistillationUserErrorMessage(
       Object.assign(new Error('provider detail must stay private'), { code: 'INVALID_MODEL_INPUT' }),
       'generate',
+      'zh',
     )).toContain('模型凭据模式');
     expect(v3DistillationUserErrorMessage(
       Object.assign(new Error('private policy path'), { code: 'MANAGED_POLICY_UNSUPPORTED' }),
       'generate',
+      'zh',
     )).toContain('托管策略');
-    const unknown = v3DistillationUserErrorMessage(new Error('private model output'), 'generate');
+    const unknown = v3DistillationUserErrorMessage(new Error('private model output'), 'generate', 'zh');
     expect(unknown).toContain('未创建或修改');
     expect(unknown).not.toContain('private');
   });

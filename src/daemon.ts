@@ -472,9 +472,9 @@ import {
   parseWorkflowGrillTrigger,
   buildWorkflowGrillPrompt,
   isLegacyTemplateCommand,
-  LEGACY_TEMPLATE_RETIRED_MESSAGE,
-  WORKFLOW_USAGE,
-  WORKFLOW_DISABLED_MESSAGE,
+  legacyTemplateRetiredMessage,
+  workflowUsage,
+  workflowDisabledMessage,
 } from './im/lark/workflow-slash-command.js';
 import {
   parseV3SavedWorkflowCommand,
@@ -4949,7 +4949,7 @@ function stableV3DistillationErrorCode(error: unknown): string {
   return 'UNKNOWN_ERROR';
 }
 
-function buildV3DistillationReviewCard(proposed: ProposedV3WorkflowDistillation): string {
+function buildV3DistillationReviewCard(proposed: ProposedV3WorkflowDistillation, larkAppId: string): string {
   return buildV3DistillationProposalCard({
     proposalId: proposed.proposalId,
     nonce: proposed.nonce,
@@ -4964,7 +4964,7 @@ function buildV3DistillationReviewCard(proposed: ProposedV3WorkflowDistillation)
         ordinal: field.nodeOrdinal,
       })),
     })),
-  });
+  }, localeForBot(larkAppId));
 }
 
 async function deliverV3DistillationReviewCard(input: {
@@ -4972,7 +4972,7 @@ async function deliverV3DistillationReviewCard(input: {
   larkAppId: string;
   anchor: string;
 }): Promise<void> {
-  const card = buildV3DistillationReviewCard(input.proposed);
+  const card = buildV3DistillationReviewCard(input.proposed, input.larkAppId);
   const uuid = `v3-distill-${input.proposed.proposalId}`;
   if (input.anchor.startsWith('oc_')) {
     await sendMessage(input.larkAppId, input.anchor, card, 'interactive', uuid);
@@ -5152,7 +5152,8 @@ async function handleV3SavedWorkflowCommandIfAny(
     memberUnionId,
     botSender,
   } = invocation;
-  const command = parseV3SavedWorkflowCommand(content);
+  const locale = localeForBot(larkAppId);
+  const command = parseV3SavedWorkflowCommand(content, locale);
   if (!command) return false;
 
   const targets = resolveV3SavedWorkflowMessageTargets({ anchor, replyRootId, messageId });
@@ -5175,18 +5176,18 @@ async function handleV3SavedWorkflowCommandIfAny(
   };
 
   if (command.kind === 'invalid') {
-    await notify(`❌ ${command.error}\n\n${v3SavedWorkflowUsage()}`, 'validation');
+    await notify(`❌ ${command.error}\n\n${v3SavedWorkflowUsage(locale)}`, 'validation');
     return true;
   }
   if (!initiatorOpenId) {
-    await notify('❌ Saved Workflow 需要可验证的飞书用户身份。', 'authorization');
+    await notify(`❌ ${tr('workflow.v3.saved.auth.identity', undefined, locale)}`, 'authorization');
     return true;
   }
   // Machine-wide workflow kill-switch: refuse starting/authoring a workflow when
   // the feature is off. `cancel` (and other decrease-only management) stays
   // available so an in-flight run started before the flip can be wound down.
   if ((command.kind === 'save' || command.kind === 'run') && !isWorkflowFeatureEnabled()) {
-    await notify(WORKFLOW_DISABLED_MESSAGE, 'validation');
+    await notify(workflowDisabledMessage(locale), 'validation');
     return true;
   }
   if (
@@ -5216,7 +5217,7 @@ async function handleV3SavedWorkflowCommandIfAny(
   });
   if (!policy.ok) {
     if (policy.reason === 'global_requires_operate') {
-      await notify('❌ 只有本群可操作成员才能使用 `--global` 发布当前 Bot 全局 Saved Workflow。', 'authorization');
+      await notify(`❌ ${tr('workflow.v3.saved.auth.global', undefined, locale)}`, 'authorization');
     }
     // Quota denial owns its exhausted-card notification in the shared quota
     // gate; avoid a second reply here.
@@ -5233,7 +5234,7 @@ async function handleV3SavedWorkflowCommandIfAny(
   const baseDir = v3DefaultBaseDir();
   if (command.kind === 'save' && command.distill) {
     if (!command.displayName) {
-      await notify('❌ 参数蒸馏必须显式指定模板名称。', 'validation');
+      await notify(`❌ ${tr('workflow.v3.saved.distill.name_required', undefined, locale)}`, 'validation');
       return true;
     }
     const distillationBot = loadBotConfigs().find((candidate) => candidate.larkAppId === larkAppId);
@@ -5242,14 +5243,14 @@ async function handleV3SavedWorkflowCommandIfAny(
       distillationBot.cliId !== 'claude-code' || Boolean(distillationBot.wrapperCli?.trim()) ||
       Boolean(distillationBot.cliPathOverride?.trim())
     ) {
-      await notify('❌ 参数蒸馏 P0 目前只支持 Linux 上未使用启动 wrapper 的 Claude Code Bot。', 'validation');
+      await notify(`❌ ${tr('workflow.v3.distill.error.unsupported', undefined, locale)}`, 'validation');
       return true;
     }
     let distillationBotSnapshot: ReturnType<typeof botToSnapshot>;
     try {
       distillationBotSnapshot = botToSnapshot(distillationBot);
     } catch {
-      await notify('❌ 当前 Bot 的 Workflow 权限配置不支持参数蒸馏。', 'authorization');
+      await notify(`❌ ${tr('workflow.v3.saved.distill.permission', undefined, locale)}`, 'authorization');
       return true;
     }
     const distillationProviderEnv = { ...(distillationBot.env ?? {}) };
@@ -5268,10 +5269,10 @@ async function handleV3SavedWorkflowCommandIfAny(
       });
     } catch (err) {
       logger.warn(`[v3-distillation] prepare failed: ${stableV3DistillationErrorCode(err)}`);
-      await notify(`❌ ${v3DistillationUserErrorMessage(err, 'prepare')}`, 'failed');
+      await notify(`❌ ${v3DistillationUserErrorMessage(err, 'prepare', locale)}`, 'failed');
       return true;
     }
-    await notify(`⏳ 正在分析可复用参数：\`${prepared.proposalId}\`。生成后会发送确认卡片；确认前不会创建 Saved Workflow。`, 'read_completed');
+    await notify(tr('workflow.v3.saved.distill.analyzing', { proposalId: prepared.proposalId }, locale), 'read_completed');
     void launchV3DistillationGeneration({
       proposalId: prepared.proposalId,
       dataDir,
@@ -5280,12 +5281,12 @@ async function handleV3SavedWorkflowCommandIfAny(
       anchor: targets.replyAnchor,
       botSnapshot: distillationBotSnapshot,
       providerEnv: distillationProviderEnv,
-      onFailure: (error) => notify(`❌ ${v3DistillationUserErrorMessage(error, 'generate')}`, 'failed'),
+      onFailure: (error) => notify(`❌ ${v3DistillationUserErrorMessage(error, 'generate', locale)}`, 'failed'),
     });
     return true;
   }
   const result = await executeV3SavedWorkflowCommand(
-    { command, dataDir, baseDir, context, operatorCanOperate },
+    { command, dataDir, baseDir, context, operatorCanOperate, locale },
     {
       ...defaultV3SavedWorkflowExecutionServices,
       loadBots: loadBotConfigs,
@@ -5604,7 +5605,10 @@ const v3ProgressCardManager = new V3ProgressCardManager({
             chat: buildV3RunSaveActionValue(loaded.envelope, 'chat'),
           }
         : undefined;
-    return buildV3ProgressCard(view, saveActions ? { saveActions } : {});
+    return buildV3ProgressCard(view, {
+      ...(saveActions ? { saveActions } : {}),
+      locale: localeForBot(binding?.larkAppId),
+    });
   },
   onError: (runId, err) => {
     logger.warn(`[v3:${runId}] progress card failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -5626,6 +5630,7 @@ const v3GateRunner = createV3GateRunner({
       approveOptions: gate.approveOptions,
       approvers: gate.approvers,
       hostApproval: gate.hostApproval,
+      locale: localeForBot(binding.larkAppId),
     });
     // codex blocker #3: never silently skip — a missing rootMessageId would
     // leave the run stuck at awaitingGate forever.  Reply in-thread when we have
@@ -5647,6 +5652,7 @@ const v3GateRunner = createV3GateRunner({
       retryForbidden: info.retryForbidden,
       // human-ask 受阻 → 渲染问题 + 选项按钮卡（替代纯重试卡）。
       ...(info.ask ? { ask: info.ask } : {}),
+      locale: localeForBot(binding.larkAppId),
     });
     if (binding.rootMessageId) {
       await sessionReply(binding.rootMessageId, card, 'interactive', binding.larkAppId);
@@ -5662,6 +5668,7 @@ const v3GateRunner = createV3GateRunner({
       maxIterations: info.maxIterations,
       granted: info.granted,
       detail: info.detail,
+      locale: localeForBot(binding.larkAppId),
     });
     if (binding.rootMessageId) {
       await sessionReply(binding.rootMessageId, card, 'interactive', binding.larkAppId);
@@ -5677,6 +5684,7 @@ const v3GateRunner = createV3GateRunner({
       tier: info.tier,
       attemptId: info.attemptId,
       detail: info.detail,
+      locale: localeForBot(binding.larkAppId),
     });
     if (binding.rootMessageId) {
       await sessionReply(binding.rootMessageId, card, 'interactive', binding.larkAppId);
@@ -21795,22 +21803,22 @@ async function handleNewTopicAdmitted(data: any, ctx: RoutingContext): Promise<v
   const newTopicGrill = parseWorkflowGrillTrigger(cmdContent);
   if (newTopicGrill) {
     if (!isWorkflowFeatureEnabled()) {
-      await sessionReply(anchor, WORKFLOW_DISABLED_MESSAGE, 'text', larkAppId);
+      await sessionReply(anchor, workflowDisabledMessage(localeForBot(larkAppId)), 'text', larkAppId);
       return;
     }
     if (await replyGrantRestrictionIfNeeded(larkAppId, chatId, senderOpenId, anchor, '/workflow')) {
       return;
     }
     if (newTopicGrill.kind === 'usage') {
-      await sessionReply(anchor, WORKFLOW_USAGE, 'text', larkAppId);
+      await sessionReply(anchor, workflowUsage(localeForBot(larkAppId)), 'text', larkAppId);
       return;
     }
-    workflowGrillPrompt = buildWorkflowGrillPrompt(newTopicGrill.goal);
+    workflowGrillPrompt = buildWorkflowGrillPrompt(newTopicGrill.goal, localeForBot(larkAppId));
     content = workflowGrillPrompt;
     // 保留原 cmdContent（"/workflow new …"）供 title/日志；/workflow 非注册命令，
     // 下面的 parseSlashCommandInvocation 会让它落到正常 spawn 路径。
   } else if (isLegacyTemplateCommand(cmdContent)) {
-    await sessionReply(anchor, LEGACY_TEMPLATE_RETIRED_MESSAGE, 'text', larkAppId);
+    await sessionReply(anchor, legacyTemplateRetiredMessage(localeForBot(larkAppId)), 'text', larkAppId);
     return;
   }
 
@@ -22667,7 +22675,7 @@ function beginAutoStartJoinReadyBarrier(
     try {
       onCancel();
     } catch (err) {
-      logger.warn(`[auto-start:入群] bootstrap timeout cleanup failed for ${routingKey}: ${err}`);
+      logger.warn(`[auto-start:group-join] Bootstrap timeout cleanup failed for ${routingKey}: ${err}`);
     } finally {
       settle();
     }
@@ -22693,7 +22701,7 @@ async function waitForAutoStartJoinReady(larkAppId: string, anchor: string): Pro
     if (timer) clearTimeout(timer);
     if (outcome === 'timeout' && autoStartJoinReadyBySessionKey.get(routingKey) === barrier) {
       logger.warn(
-        `[auto-start:入群] bootstrap exceeded ${maxWaitMs}ms for ${anchor.substring(0, 12)}; ` +
+        `[auto-start:group-join] bootstrap exceeded ${maxWaitMs}ms for ${anchor.substring(0, 12)}; ` +
         `yielding registration to the waiting turn`,
       );
       barrier.cancel();
@@ -22724,15 +22732,15 @@ async function warnGroupJoinScopeOnce(larkAppId: string, detail: string): Promis
   const bot = getBot(larkAppId);
   const adminOpenId = bot.resolvedAllowedUsers.find(u => u.startsWith('ou_'));
   if (!adminOpenId) {
-    logger.warn(`[auto-start:入群] ${larkAppId} 缺权限提示无法私信（allowedUsers 无 open_id），仅记录日志`);
+    logger.warn(`[auto-start:group-join] ${larkAppId} could not DM the missing-permission notice (allowedUsers has no open_id); logging only`);
     return;
   }
   const dm = tr('daemon.auto_start_member_read_failed', { detail }, localeForBot(larkAppId));
   try {
     await sendUserMessage(larkAppId, adminOpenId, dm, 'text');
-    logger.info(`[auto-start:入群] ${larkAppId} 已私信 admin 提示补权限`);
+    logger.info(`[auto-start:group-join] ${larkAppId} sent the admin a DM requesting missing permissions`);
   } catch (err) {
-    logger.warn(`[auto-start:入群] ${larkAppId} 私信 admin 失败：${err}`);
+    logger.warn(`[auto-start:group-join] ${larkAppId} failed to DM the admin: ${err}`);
   }
 }
 
@@ -22785,7 +22793,7 @@ async function handleBotAdded(
   const forced = typeof opts?.forcePrompt === 'string';
   if (!forced && botCfg.autoStartExcludedChats?.includes(chatId)) return;
   if (!forced && botCfg.autoStartOnGroupJoin !== true) {
-    logger.debug(`[auto-start:入群] ${chatId.substring(0, 12)} 开关未开，忽略`);
+    logger.debug(`[auto-start:group-join] ${chatId.substring(0, 12)} feature disabled; ignoring`);
     return;
   }
 
@@ -22797,7 +22805,7 @@ async function handleBotAdded(
   // closed) falls through so a re-add re-triggers.
   const priorAnchorKey = groupJoinAnchorByChat.get(chatLiveKey);
   if (autoStartJoinInFlight.has(lockKey) || (priorAnchorKey && activeSessions.has(priorAnchorKey))) {
-    logger.info(`[auto-start:入群] ${chatId.substring(0, 12)} 已在处理/已有会话，跳过（去重）`);
+    logger.info(`[auto-start:group-join] ${chatId.substring(0, 12)} already processing or has a session; skipping duplicate`);
     return;
   }
   if (priorAnchorKey) groupJoinAnchorByChat.delete(chatLiveKey); // stale entry, will re-register below
@@ -22816,15 +22824,15 @@ async function handleBotAdded(
         listMembers: () => listChatMemberOpenIds(larkAppId, chatId),
         allowedUsers: bot.resolvedAllowedUsers,
         onRetry: (attempt, delayMs) =>
-          logger.info(`[auto-start:入群] ${chatId.substring(0, 12)} 暂无 allowedUser 成员，${delayMs}ms 后重查（第 ${attempt} 次）`),
+          logger.info(`[auto-start:group-join] ${chatId.substring(0, 12)} has no allowedUser member yet; rechecking in ${delayMs}ms (attempt ${attempt})`),
       });
     } catch (err: any) {
-      logger.warn(`[auto-start:入群] ${chatId.substring(0, 12)} 拉群成员失败：${err?.message ?? err}`);
+      logger.warn(`[auto-start:group-join] ${chatId.substring(0, 12)} failed to list chat members: ${err?.message ?? err}`);
       await warnGroupJoinScopeOnce(larkAppId, String(err?.message ?? err));
       return;
     }
     if (!hasAllowedUser) {
-      logger.info(`[auto-start:入群] ${chatId.substring(0, 12)} 群内无 allowedUser 成员，忽略`);
+      logger.info(`[auto-start:group-join] ${chatId.substring(0, 12)} has no allowedUser member; ignoring`);
       return;
     }
 
@@ -22837,7 +22845,7 @@ async function handleBotAdded(
     const chatContext = await getChatContext(larkAppId, chatId);
     const mode = chatContext.mode === 'unknown' ? 'group' : chatContext.mode;
     if (chatContext.mode === 'unknown') {
-      logger.warn(`[auto-start:入群] ${chatId.substring(0, 12)} 群模式未知，按普通群路由`);
+      logger.warn(`[auto-start:group-join] ${chatId.substring(0, 12)} chat mode unknown; routing as a regular group`);
     }
     const promptBody = opts?.forcePrompt ?? resolveGroupJoinPrompt(botCfg.autoStartOnGroupJoinPrompt);
     const title = (promptBody || tr('daemon.auto_start_join_title', undefined, localeForBot(larkAppId))).substring(0, 50);
@@ -22877,7 +22885,7 @@ async function handleBotAdded(
     const joinTurnId = scope === 'thread' ? anchor : `join_${randomUUID()}`;
     const dsKey = sessionKey(anchor, larkAppId);
     if (activeSessions.has(dsKey)) {
-      logger.info(`[auto-start:入群] ${chatId.substring(0, 12)} 锚点已有会话，跳过`);
+      logger.info(`[auto-start:group-join] ${chatId.substring(0, 12)} anchor already has a session; skipping`);
       return;
     }
     const needsSharedReply = mode === 'group'
@@ -22951,7 +22959,7 @@ async function handleBotAdded(
       );
       if (takenOver && ds.worker && !ds.worker.killed) {
         logger.warn(
-          `[auto-start:入群] ${chatId.substring(0, 12)} bootstrap 期间会话已由其它入口启动，让位且不再 refork`,
+          `[auto-start:group-join] ${chatId.substring(0, 12)} session was started by another entry point during bootstrap; yielding without refork`,
         );
       }
       return takenOver;
@@ -22968,7 +22976,7 @@ async function handleBotAdded(
       // must yield to the new worker instead of closing its active turn.
       if (joinBootstrapExternallyTakenOver()) {
         logger.warn(
-          `[auto-start:入群] ${chatId.substring(0, 12)} bootstrap timeout 时会话已被接管，跳过候选回收`,
+          `[auto-start:group-join] ${chatId.substring(0, 12)} session was adopted at bootstrap timeout; skipping candidate cleanup`,
         );
         return;
       }
@@ -22980,7 +22988,7 @@ async function handleBotAdded(
       const closing = closeSessionHelper(session.sessionId);
       if (activeSessions.get(dsKey) === ds) activeSessions.delete(dsKey);
       void closing.catch((err) => {
-        logger.warn(`[auto-start:入群] timeout close failed for ${session.sessionId.substring(0, 8)}: ${err}`);
+        logger.warn(`[auto-start:group-join] Timeout close failed for ${session.sessionId.substring(0, 8)}: ${err}`);
       });
     });
     const rollbackRegisteredJoinSession = async (): Promise<void> => {
@@ -23021,7 +23029,7 @@ async function handleBotAdded(
           'text',
         );
       } catch (err: any) {
-        logger.warn(`[auto-start:入群] ${chatId.substring(0, 12)} shared seed 发送失败：${err?.message ?? err}`);
+        logger.warn(`[auto-start:group-join] ${chatId.substring(0, 12)} shared seed send failed: ${err?.message ?? err}`);
         await rollbackRegisteredJoinSession();
         return;
       }
@@ -23032,14 +23040,14 @@ async function handleBotAdded(
         return;
       }
       if (activeSessions.get(dsKey) !== ds || ds.session.status !== 'active') {
-        logger.warn(`[auto-start:入群] ${chatId.substring(0, 12)} shared seed 返回时会话已被替换，停止首轮`);
+        logger.warn(`[auto-start:group-join] ${chatId.substring(0, 12)} session was replaced before the shared seed returned; stopping the opening turn`);
         withdrawSharedReplySeed();
         await rollbackRegisteredJoinSession();
         return;
       }
       if (ds.worker && !ds.worker.killed) {
         withdrawSharedReplySeed();
-        logger.warn(`[auto-start:入群] ${chatId.substring(0, 12)} shared seed 返回时会话已由其它入口启动，让位`);
+        logger.warn(`[auto-start:group-join] ${chatId.substring(0, 12)} session was started by another entry point before the shared seed returned; yielding`);
         return;
       }
     }
@@ -23068,7 +23076,7 @@ async function handleBotAdded(
         // 会让后续 bot.added 被无限去重，自动开工无法重试。同
         // stageClaimedPendingRepoSetup 的 unpublish/close 回滚。
         logger.warn(
-          `[auto-start:入群] ${chatId.substring(0, 12)} 首轮 turn provenance 持久化失败，回滚会话注册：`
+          `[auto-start:group-join] ${chatId.substring(0, 12)} failed to persist opening-turn provenance; rolling back session registration: `
           + `${err instanceof Error ? err.message : String(err)}`,
         );
         await rollbackRegisteredJoinSession();
@@ -23109,7 +23117,7 @@ async function handleBotAdded(
       forkReservedInitialSession(ds, availableBots);
       ds.pendingTurnId = undefined;
       ds.pendingChatContext = undefined;
-      logger.info(`[auto-start:入群] ${chatId.substring(0, 12)} 自动开工（${mode}/${scope}），workingDir=${pinnedWorkingDir}`);
+      logger.info(`[auto-start:group-join] ${chatId.substring(0, 12)} auto-started (${mode}/${scope}), workingDir=${pinnedWorkingDir}`);
       return;
     }
 
@@ -23136,7 +23144,7 @@ async function handleBotAdded(
         // 卡片没发出去就没有 picker 可点，保持 pendingRepo 会把这个入群会话挂死。
         // 落到下面「无可选项目」那条路直接开工——它自己会重跑 takeover 检查并
         // 重新 armSharedReplyTarget，所以这里既不撤 seed 也不动 reply target。
-        logger.warn(`[auto-start:入群] ${chatId.substring(0, 12)} repo 卡发送失败（${err instanceof Error ? err.message : String(err)}），改用默认目录直接开工`);
+        logger.warn(`[auto-start:group-join] ${chatId.substring(0, 12)} repository picker card failed (${err instanceof Error ? err.message : String(err)}); starting directly in the default directory`);
       }
       if (repoCardMessageId && joinBootstrapWasTakenOver()) {
         void deleteMessage(larkAppId, repoCardMessageId);
@@ -23151,7 +23159,7 @@ async function handleBotAdded(
         ds.repoCardMessageId = repoCardMessageId;
         persistPendingRepoCardMessageId(ds, ds.repoCardMessageId);
         announcePendingRepoSession(ds);
-        logger.info(`[auto-start:入群] ${chatId.substring(0, 12)} 无默认目录，弹 repo 选择卡（${projects.length} 个项目）`);
+        logger.info(`[auto-start:group-join] ${chatId.substring(0, 12)} has no default directory; showing repository picker (${projects.length} project(s))`);
       } else {
         ds.repoCardMessageId = undefined;
       }
@@ -23173,7 +23181,7 @@ async function handleBotAdded(
       forkReservedInitialSession(ds, availableBots);
       ds.pendingTurnId = undefined;
       ds.pendingChatContext = undefined;
-      logger.info(`[auto-start:入群] ${chatId.substring(0, 12)} 无默认目录${projects.length > 0 ? '且 repo 卡不可用' : '且无可选项目'}，直接开工`);
+      logger.info(`[auto-start:group-join] ${chatId.substring(0, 12)} has no default directory${projects.length > 0 ? ' and the repository picker is unavailable' : ' and no projects are available'}; starting directly`);
     }
   } finally {
     joinReady?.settle();
@@ -23946,17 +23954,17 @@ async function handleThreadReplyAdmitted(
   const threadGrill = parseWorkflowGrillTrigger(cmdContent);
   if (threadGrill) {
     if (!isWorkflowFeatureEnabled()) {
-      await sessionReply(anchor, WORKFLOW_DISABLED_MESSAGE, 'text', larkAppId);
+      await sessionReply(anchor, workflowDisabledMessage(localeForBot(larkAppId)), 'text', larkAppId);
       return;
     }
     if (await replyGrantRestrictionIfNeeded(larkAppId, threadChatId, threadSenderOpenId, anchor, '/workflow')) {
       return;
     }
     if (threadGrill.kind === 'usage') {
-      await sessionReply(anchor, WORKFLOW_USAGE, 'text', larkAppId);
+      await sessionReply(anchor, workflowUsage(localeForBot(larkAppId)), 'text', larkAppId);
       return;
     }
-    const workflowPrompt = buildWorkflowGrillPrompt(threadGrill.goal);
+    const workflowPrompt = buildWorkflowGrillPrompt(threadGrill.goal, localeForBot(larkAppId));
     // Legacy/non-clean paths still need daemon-owned VC lifecycle context.
     // For clean Codex App, keep that trusted context in the application lane
     // and expose only quote/bot prefixes + the generated workflow prompt as
@@ -23967,7 +23975,7 @@ async function handleThreadReplyAdmitted(
     rewrittenCodexAppMessageContext = initialCodexAppMessageContext + workflowPrompt;
     // fall through to normal forwarding with the rewritten promptContent
   } else if (isLegacyTemplateCommand(cmdContent)) {
-    await sessionReply(anchor, LEGACY_TEMPLATE_RETIRED_MESSAGE, 'text', larkAppId);
+    await sessionReply(anchor, legacyTemplateRetiredMessage(localeForBot(larkAppId)), 'text', larkAppId);
     return;
   }
 
@@ -27884,7 +27892,7 @@ export async function startDaemon(botIndex?: number): Promise<void> {
     if (cfg.apiOnly) {
       bot.botOpenId ||= `bot_${cfg.larkAppId}`;
       bot.botName ||= cfg.displayName ?? cfg.larkAppId;
-      logger.info(`[api-only] ${cfg.larkAppId} 以 core-only 模式启动：跳过飞书 open_id 探测 / scope 校验 / WSClient 订阅，仅 HTTP 控制 API 驱动`);
+      logger.info(`[api-only] ${cfg.larkAppId} started in core-only mode: skipping Feishu open_id probe, scope validation, and WSClient subscription; HTTP control API only`);
     } else {
     // Probe bot open_id and persist to bots-info.json. When the friendly
     // botName comes back from /bot/v3/info, refresh the dashboard descriptor
@@ -27947,8 +27955,8 @@ export async function startDaemon(botIndex?: number): Promise<void> {
     // event subscription is at least visible in the logs.
     if (cfg.autoStartOnGroupJoin) {
       logger.info(
-        `[auto-start:入群] ${cfg.larkAppId} autoStartOnGroupJoin 已开启 —— ` +
-        `请确认飞书开放平台已订阅事件 im.chat.member.bot.added_v1 且开通群成员读取权限，否则被拉群不会触发。`,
+        `[auto-start:group-join] ${cfg.larkAppId} autoStartOnGroupJoin is enabled — ` +
+        'ensure Feishu Open Platform subscribes to im.chat.member.bot.added_v1 and grants chat-member read permission, or group invitations will not trigger startup.',
       );
     }
 

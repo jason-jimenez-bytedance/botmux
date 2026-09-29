@@ -1,7 +1,7 @@
 #!/bin/sh
 # botmux single-binary installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/deepcoldy/botmux/master/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/jason-jimenez-bytedance/botmux/master/install.sh | sh
 #
 # Downloads the self-contained Bun executable for your OS/arch from the latest
 # GitHub Release, verifies its SHA-256 checksum, and installs it to
@@ -14,13 +14,26 @@
 # Env overrides:
 #   BOTMUX_INSTALL_DIR   install location (default: $HOME/.botmux/bin)
 #   BOTMUX_VERSION       release tag to install (default: latest)
-#   BOTMUX_REPO          owner/repo (default: deepcoldy/botmux)
+#   BOTMUX_REPO          owner/repo (default: jason-jimenez-bytedance/botmux)
+#   BOTMUX_REQUIRE_PINNED set to 1 for Workbench-managed installs; refuses latest
 set -eu
 
-REPO="${BOTMUX_REPO:-deepcoldy/botmux}"
+REPO="${BOTMUX_REPO:-jason-jimenez-bytedance/botmux}"
 INSTALL_DIR="${BOTMUX_INSTALL_DIR:-$HOME/.botmux/bin}"
+VERSION="${BOTMUX_VERSION:-latest}"
 
 err() { printf '%s\n' "botmux install: $*" >&2; exit 1; }
+
+if [ "${BOTMUX_REQUIRE_PINNED:-0}" = 1 ] && [ "$VERSION" = latest ]; then
+  err "Workbench-managed installation requires an exact BOTMUX_VERSION (for example v3.30.1); refusing an unpinned latest install"
+fi
+if [ "${BOTMUX_REQUIRE_PINNED:-0}" = 1 ]; then
+  approved_version=${VERSION#v}
+  if ! printf '%s\n' "$approved_version" \
+    | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'; then
+    err "Workbench-managed installation requires an exact semantic BOTMUX_VERSION; got '$VERSION'"
+  fi
+fi
 
 # ── Detect OS/arch and map to the release asset name (botmux-<os>-<arch>) ──────
 os="$(uname -s)"
@@ -69,10 +82,11 @@ if [ "$os_tag" = linux ]; then
 fi
 
 # ── Resolve the download URLs (binary + checksum) ─────────────────────────────
-if [ "${BOTMUX_VERSION:-latest}" = "latest" ]; then
+if [ "$VERSION" = "latest" ]; then
   base="https://github.com/${REPO}/releases/latest/download"
 else
-  base="https://github.com/${REPO}/releases/download/${BOTMUX_VERSION}"
+  case "$VERSION" in v*) release_tag="$VERSION" ;; *) release_tag="v$VERSION" ;; esac
+  base="https://github.com/${REPO}/releases/download/${release_tag}"
 fi
 
 command -v curl >/dev/null 2>&1 || err "curl is required"
@@ -82,23 +96,19 @@ trap 'rm -rf "$tmp"' EXIT
 
 printf '%s\n' "↓ downloading $asset from $base ..."
 curl -fSL "$base/$asset" -o "$tmp/$asset" || err "download failed: $base/$asset (no build for ${os_tag}-${arch_tag}?)"
-# Checksum is best-effort: if the release omits it, warn but continue.
-if curl -fsSL "$base/$asset.sha256" -o "$tmp/$asset.sha256" 2>/dev/null; then
-  expected="$(cut -d' ' -f1 < "$tmp/$asset.sha256")"
-  if command -v sha256sum >/dev/null 2>&1; then
-    actual="$(sha256sum "$tmp/$asset" | cut -d' ' -f1)"
-  elif command -v shasum >/dev/null 2>&1; then
-    actual="$(shasum -a 256 "$tmp/$asset" | cut -d' ' -f1)"
-  else
-    actual=""
-  fi
-  if [ -n "$actual" ] && [ "$actual" != "$expected" ]; then
-    err "checksum mismatch for $asset (expected $expected, got $actual)"
-  fi
-  [ -n "$actual" ] && printf '%s\n' "✓ checksum verified"
+curl -fsSL "$base/$asset.sha256" -o "$tmp/$asset.sha256" \
+  || err "required checksum is missing: $base/$asset.sha256"
+expected="$(awk -v name="$asset" '$1 ~ /^[0-9a-fA-F]{64}$/ && ($2 == name || $2 == "*" name) { print tolower($1); exit }' "$tmp/$asset.sha256")"
+[ -n "$expected" ] || err "invalid checksum file for $asset"
+if command -v sha256sum >/dev/null 2>&1; then
+  actual="$(sha256sum "$tmp/$asset" | cut -d' ' -f1)"
+elif command -v shasum >/dev/null 2>&1; then
+  actual="$(shasum -a 256 "$tmp/$asset" | cut -d' ' -f1)"
 else
-  printf '%s\n' "⚠ no checksum published for $asset; skipping verification"
+  err "sha256sum or shasum is required to verify $asset"
 fi
+[ "$actual" = "$expected" ] || err "checksum mismatch for $asset (expected $expected, got $actual)"
+printf '%s\n' "✓ checksum verified"
 
 # ── Probe + atomically install ────────────────────────────────────────────────
 # os/arch/libc selection cannot express the minimum glibc symbol version. Run the
@@ -117,6 +127,10 @@ if ! probe_output="$("$candidate" --version 2>&1)"; then
 fi
 mv "$candidate" "$INSTALL_DIR/botmux"
 printf '%s\n' "✅ installed botmux → $INSTALL_DIR/botmux"
+if [ "${BOTMUX_REQUIRE_PINNED:-0}" = 1 ]; then
+  "$INSTALL_DIR/botmux" distribution pin "$approved_version" \
+    || err "installed v$approved_version but could not persist the Workbench approved-version pin"
+fi
 
 # ── PATH: write it, don't just suggest it ─────────────────────────────────────
 # This used to only print `echo 'export PATH=…' >> ~/.profile`, which is WRONG for
@@ -272,4 +286,4 @@ else
   printf '  %s\n' "echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.profile && . ~/.profile"
 fi
 
-printf '\n%s\n' "Next: botmux setup"
+printf '\n%s\n' "Next: botmux setup --lang en"

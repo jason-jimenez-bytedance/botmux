@@ -3,11 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   buildBotFromAddFlags,
   editInputFromFlags,
+  extractSetupLocaleArgs,
   isScriptedSetupInvocation,
   maskAppSecret,
   parseSetupCommand,
   SETUP_CLI_USAGE,
+  SETUP_CLI_USAGE_EN,
   cliSelectionKeys,
+  setupCliUsage,
 } from '../src/setup/setup-args.js';
 import { applyBotConfigEdits } from '../src/setup/bot-config-editor.js';
 
@@ -29,10 +32,38 @@ describe('isScriptedSetupInvocation', () => {
   });
 });
 
+describe('extractSetupLocaleArgs', () => {
+  it('extracts --lang before setup mode detection', () => {
+    expect(extractSetupLocaleArgs(['--lang', 'en'])).toEqual({ argv: [], locale: 'en' });
+    expect(extractSetupLocaleArgs(['add', '--lang=zh', '--json'])).toEqual({
+      argv: ['add', '--json'],
+      locale: 'zh',
+    });
+  });
+
+  it('rejects missing and unsupported language values in English', () => {
+    expect(() => extractSetupLocaleArgs(['--lang'])).toThrow('--lang requires a value');
+    expect(() => extractSetupLocaleArgs(['--lang', 'fr'])).toThrow('Supported values: en, zh');
+  });
+
+  it('renders scripted validation errors in the selected setup language', () => {
+    expect(() => parseSetupCommand(['list', '--cli', 'codex'], 'en'))
+      .toThrow('list does not accept field option --cli');
+    expect(() => parseSetupCommand(['list', '--cli', 'codex'], 'zh'))
+      .toThrow('list 不接受字段参数 --cli');
+  });
+});
+
 describe('SETUP_CLI_USAGE', () => {
   it('warns Agents that open_id is app-scoped and must not be copied across Bots', () => {
     expect(SETUP_CLI_USAGE).toContain('ou_xxx 仅限已有目标应用自身');
-    expect(SETUP_CLI_USAGE).toContain('勿跨 Bot 复制');
+    expect(SETUP_CLI_USAGE).toContain('--lang <en|zh>');
+  });
+
+  it('uses English for fresh installs while keeping explicit Chinese help available', () => {
+    expect(setupCliUsage()).toBe(SETUP_CLI_USAGE_EN);
+    expect(setupCliUsage()).toContain('scripted (non-TUI) usage');
+    expect(setupCliUsage('zh')).toBe(SETUP_CLI_USAGE);
   });
 });
 
@@ -48,8 +79,9 @@ describe('parseSetupCommand', () => {
   });
 
   it('rejects field flags and positionals on list', () => {
-    expect(() => parseSetupCommand(['list', '--cli', 'codex'])).toThrow(/list 不接受字段参数/);
-    expect(() => parseSetupCommand(['list', 'botmux-0'])).toThrow(/不接受多余参数/);
+    expect(() => parseSetupCommand(['list', '--cli', 'codex'])).toThrow(/list does not accept field option/);
+    expect(() => parseSetupCommand(['list', 'botmux-0'])).toThrow(/does not accept extra arguments/);
+    expect(() => parseSetupCommand(['list', '--cli', 'codex'], 'zh')).toThrow(/list 不接受字段参数/);
   });
 
   it('parses add flags in both --flag value and --flag=value forms', () => {
@@ -122,23 +154,23 @@ describe('parseSetupCommand', () => {
     expect(parseSetupCommand(['add', '--create-app', '--compatibility-mode'])).toMatchObject({
       action: 'add', createApp: true, compatibilityMode: true,
     });
-    expect(() => parseSetupCommand(['add', '--compatibility-mode'])).toThrow(/必须与 add --create-app/);
-    expect(() => parseSetupCommand(['add', '--create-app', '--compatibility-mode', '--app-name', 'Bot'])).toThrow(/不支持 --app-name/);
+    expect(() => parseSetupCommand(['add', '--compatibility-mode'])).toThrow(/must be used with add --create-app/);
+    expect(() => parseSetupCommand(['add', '--create-app', '--compatibility-mode', '--app-name', 'Bot'])).toThrow(/does not support --app-name/);
   });
 
   it('parses explicit account switching only for the Feishu create-app path', () => {
     expect(parseSetupCommand(['add', '--create-app', '--switch-account'])).toMatchObject({
       action: 'add', createApp: true, switchAccount: true,
     });
-    expect(() => parseSetupCommand(['add', '--switch-account'])).toThrow(/必须与 add --create-app/);
-    expect(() => parseSetupCommand(['add', '--create-app', '--compatibility-mode', '--switch-account'])).toThrow(/不适用于 SDK 兼容模式/);
-    expect(() => parseSetupCommand(['list', '--switch-account'])).toThrow(/add --create-app 或 configure/);
-    expect(() => parseSetupCommand(['edit', 'botmux-0', '--switch-account'])).toThrow(/add --create-app 或 configure/);
+    expect(() => parseSetupCommand(['add', '--switch-account'])).toThrow(/must be used with add --create-app/);
+    expect(() => parseSetupCommand(['add', '--create-app', '--compatibility-mode', '--switch-account'])).toThrow(/not available in SDK compatibility mode/);
+    expect(() => parseSetupCommand(['list', '--switch-account'])).toThrow(/add --create-app or configure/);
+    expect(() => parseSetupCommand(['edit', 'botmux-0', '--switch-account'])).toThrow(/add --create-app or configure/);
   });
 
   it('rejects ambiguous create-app credential combinations and app-name without creation', () => {
-    expect(() => parseSetupCommand(['add', '--create-app', '--app-id', 'cli_x'])).toThrow(/不能与 --app-id/);
-    expect(() => parseSetupCommand(['add', '--app-name', 'Bot'])).toThrow(/必须与 add --create-app/);
+    expect(() => parseSetupCommand(['add', '--create-app', '--app-id', 'cli_x'])).toThrow(/cannot be combined with --app-id/);
+    expect(() => parseSetupCommand(['add', '--app-name', 'Bot'])).toThrow(/must be used with add --create-app/);
   });
 
   it('parses configure as a stable retry entry and rejects unrelated flags', () => {
@@ -154,27 +186,27 @@ describe('parseSetupCommand', () => {
       json: false,
       switchAccount: true,
     });
-    expect(() => parseSetupCommand(['configure'])).toThrow(/需要指定机器人/);
-    expect(() => parseSetupCommand(['configure', 'a', 'b'])).toThrow(/只接受一个机器人标识/);
-    expect(() => parseSetupCommand(['configure', 'botmux-1', '--cli', 'codex'])).toThrow(/不接受字段参数/);
-    expect(() => parseSetupCommand(['configure', 'botmux-1', '--open-platform-auto'])).toThrow(/只接受机器人标识、--switch-account 和 --json/);
+    expect(() => parseSetupCommand(['configure'])).toThrow(/requires a bot selector/);
+    expect(() => parseSetupCommand(['configure', 'a', 'b'])).toThrow(/accepts exactly one bot selector/);
+    expect(() => parseSetupCommand(['configure', 'botmux-1', '--cli', 'codex'])).toThrow(/does not accept field option/);
+    expect(() => parseSetupCommand(['configure', 'botmux-1', '--open-platform-auto'])).toThrow(/accepts only a bot selector, --switch-account, and --json/);
   });
 
   it('accepts "-" as a clear value but treats a following --flag as a missing value', () => {
     const cmd = parseSetupCommand(['edit', 'botmux-0', '--default-working-dir', '-']);
     expect(cmd).toMatchObject({ action: 'edit', selector: 'botmux-0', flags: { defaultWorkingDir: '-' } });
-    expect(() => parseSetupCommand(['edit', 'botmux-0', '--model', '--json'])).toThrow(/--model 缺少取值/);
-    expect(() => parseSetupCommand(['edit', 'botmux-0', '--model'])).toThrow(/--model 缺少取值/);
+    expect(() => parseSetupCommand(['edit', 'botmux-0', '--model', '--json'])).toThrow(/--model requires a value/);
+    expect(() => parseSetupCommand(['edit', 'botmux-0', '--model'])).toThrow(/--model requires a value/);
   });
 
   it('rejects unknown flags and positionals on add', () => {
-    expect(() => parseSetupCommand(['add', '--nope', 'x'])).toThrow(/未知参数 --nope/);
-    expect(() => parseSetupCommand(['add', 'stray'])).toThrow(/不接受位置参数/);
+    expect(() => parseSetupCommand(['add', '--nope', 'x'])).toThrow(/Unknown option --nope/);
+    expect(() => parseSetupCommand(['add', 'stray'])).toThrow(/does not accept positional arguments/);
   });
 
   it('requires exactly one selector for edit and remove', () => {
-    expect(() => parseSetupCommand(['edit'])).toThrow(/需要指定机器人/);
-    expect(() => parseSetupCommand(['edit', 'a', 'b'])).toThrow(/只接受一个机器人标识/);
+    expect(() => parseSetupCommand(['edit'])).toThrow(/requires a bot selector/);
+    expect(() => parseSetupCommand(['edit', 'a', 'b'])).toThrow(/accepts exactly one bot selector/);
     expect(parseSetupCommand(['remove', 'botmux-1', '--yes', '--json'])).toEqual({
       action: 'remove', selector: 'botmux-1', yes: true, json: true,
     });
@@ -184,7 +216,7 @@ describe('parseSetupCommand', () => {
   });
 
   it('rejects unknown subcommands', () => {
-    expect(() => parseSetupCommand(['frobnicate'])).toThrow(/未知 setup 子命令/);
+    expect(() => parseSetupCommand(['frobnicate'])).toThrow(/Unknown setup subcommand/);
   });
 });
 
@@ -204,6 +236,27 @@ describe('buildBotFromAddFlags', () => {
       workingDir: '~',
       allowedUsers: ['alice@example.com'],
     });
+  });
+
+  it('materializes the opt-in Workbench preset without changing ordinary bots', () => {
+    expect(buildBotFromAddFlags({ ...REQUIRED })).not.toHaveProperty('conversationPreset');
+    expect(buildBotFromAddFlags({ ...REQUIRED, conversationPreset: 'WORKBENCH' })).toMatchObject({
+      conversationPreset: 'workbench',
+      lang: 'en',
+      p2pMode: 'chat',
+      regularGroupMentionMode: 'topic',
+      replyDelivery: 'transcript',
+      cotEnabled: false,
+      disableStreamingCard: true,
+      silentTurnReactions: false,
+    });
+  });
+
+  it('rejects unknown presets and requires explicit field edits for existing bots', () => {
+    expect(() => buildBotFromAddFlags({ ...REQUIRED, conversationPreset: 'unknown' }))
+      .toThrow(/Unsupported conversation preset/);
+    expect(() => editInputFromFlags({ conversationPreset: 'workbench' }))
+      .toThrow(/only valid with add/);
   });
 
   it('lists all missing required flags at once', () => {
@@ -242,7 +295,7 @@ describe('buildBotFromAddFlags', () => {
       ...REQUIRED,
       cli: 'forge-x-traex',
       wrapperCli: 'aiden x traex',
-    })).toThrow(/不能与 --wrapper-cli 同时使用/);
+    })).toThrow(/cannot be combined with --wrapper-cli/);
   });
 
   it('builds a Codex-compatible runtime from --cli-runtime JSON', () => {
@@ -264,7 +317,7 @@ describe('buildBotFromAddFlags', () => {
 
   it('rejects malformed --cli-runtime JSON and invalid runtime structure', () => {
     expect(() => buildBotFromAddFlags({ ...REQUIRED, cli: 'codex', cliRuntime: '{bad' }))
-      .toThrow(/--cli-runtime 不是合法 JSON/);
+      .toThrow(/--cli-runtime is not valid JSON/);
     expect(() => buildBotFromAddFlags({ ...REQUIRED, cli: 'codex', cliRuntime: '{"id":"vendor-codex"}' }))
       .toThrow(/cliRuntime|executable/);
   });
@@ -289,13 +342,13 @@ describe('buildBotFromAddFlags', () => {
   });
 
   it('rejects unknown cli selection keys', () => {
-    expect(() => buildBotFromAddFlags({ ...REQUIRED, cli: 'not-a-cli' })).toThrow(/未知 CLI 选择项/);
+    expect(() => buildBotFromAddFlags({ ...REQUIRED, cli: 'not-a-cli' }, 'zh')).toThrow(/未知 CLI 选择项/);
   });
 
   it('persists brand only for lark and rejects other values', () => {
     expect(buildBotFromAddFlags({ ...REQUIRED, brand: 'lark' }).brand).toBe('lark');
     expect(buildBotFromAddFlags({ ...REQUIRED, brand: 'feishu' }).brand).toBeUndefined();
-    expect(() => buildBotFromAddFlags({ ...REQUIRED, brand: 'slack' })).toThrow(/--brand 必须是 feishu 或 lark/);
+    expect(() => buildBotFromAddFlags({ ...REQUIRED, brand: 'slack' })).toThrow(/--brand must be feishu or lark/);
   });
 
   it('fixed default dir mode: --default-working-dir alone leaves workingDir unset', () => {
@@ -311,7 +364,7 @@ describe('buildBotFromAddFlags', () => {
   });
 
   it('rejects allowed-users entries without a resolvable owner', () => {
-    expect(() => buildBotFromAddFlags({ ...REQUIRED, allowedUsers: 'alice' })).toThrow(/完整邮箱/);
+    expect(() => buildBotFromAddFlags({ ...REQUIRED, allowedUsers: 'alice' }, 'zh')).toThrow(/完整邮箱/);
   });
 
   it('stores showInTeam=false and keeps default true unstored', () => {
@@ -322,7 +375,7 @@ describe('buildBotFromAddFlags', () => {
 
 describe('editInputFromFlags', () => {
   it('rejects --app-name outside add --create-app', () => {
-    expect(() => editInputFromFlags({ appName: 'Bot' })).toThrow(/仅与 add --create-app/);
+    expect(() => editInputFromFlags({ appName: 'Bot' })).toThrow(/only valid with add --create-app/);
   });
 
   it('maps only the provided flags', () => {
@@ -367,12 +420,12 @@ describe('editInputFromFlags', () => {
     expect(() => editInputFromFlags({
       cli: 'forge-x-traex',
       wrapperCli: 'aiden x traex',
-    })).toThrow(/不能与 --wrapper-cli 同时使用/);
+    })).toThrow(/cannot be combined with --wrapper-cli/);
   });
 
   it('passes tri-state clears through and rejects brand on edit', () => {
     expect(editInputFromFlags({ defaultWorkingDir: '-' })).toEqual({ defaultWorkingDir: '-' });
-    expect(() => editInputFromFlags({ brand: 'lark' })).toThrow(/--brand 仅在 add 时可指定/);
+    expect(() => editInputFromFlags({ brand: 'lark' })).toThrow(/--brand is only valid with add/);
   });
 
   it('maps --cli-runtime JSON and clear into the editor tri-state', () => {

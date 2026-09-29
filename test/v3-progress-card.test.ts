@@ -39,7 +39,7 @@ function baseView(overrides: Partial<V3ProgressView> = {}): V3ProgressView {
 }
 
 function parse(view: V3ProgressView, webDetailUrl = 'https://example.test/v3/run'): any {
-  return JSON.parse(buildV3ProgressCard(view, { webDetailUrl }));
+  return JSON.parse(buildV3ProgressCard(view, { webDetailUrl, locale: 'zh' }));
 }
 
 function allText(card: unknown): string {
@@ -47,6 +47,41 @@ function allText(card: unknown): string {
 }
 
 describe('buildV3ProgressCard', () => {
+  it('defaults newly rendered success, empty, and failure cards to English', () => {
+    const success = JSON.parse(buildV3ProgressCard(baseView({
+      status: 'succeeded',
+      currentNodeIds: [],
+      waitingNodeIds: [],
+      loops: [],
+      revisit: { count: 0, refreshedNodeIds: [] },
+    }), { webDetailUrl: 'https://example.test/v3/run' }));
+    expect(success.header.title.content).toBe('✅ Workflow v3 · Completed');
+    expect(allText(success)).toContain('2 / 6 nodes complete');
+    expect(allText(success)).toContain('Save for reuse');
+    expect(allText(success)).toContain('Web details (sign-in required)');
+    expect(allText(success)).not.toMatch(/[\u3400-\u9fff]/u);
+
+    const empty = JSON.parse(buildV3ProgressCard(baseView({
+      currentNodeIds: [],
+      waitingNodeIds: [],
+      loops: [],
+      revisit: { count: 0, refreshedNodeIds: [] },
+    }), { webDetailUrl: 'https://example.test/v3/run' }));
+    expect(allText(empty)).not.toContain('Current nodes');
+    expect(allText(empty)).not.toContain('Waiting');
+
+    const failure = JSON.parse(buildV3ProgressCard(baseView({
+      status: 'failed',
+      issue: { nodeId: 'deploy', errorClass: 'workerError', errorCode: 'AUTH_REQUIRED' },
+      currentNodeIds: [],
+      waitingNodeIds: [],
+    }), { webDetailUrl: 'https://example.test/v3/run' }));
+    expect(failure.header.title.content).toBe('❌ Workflow v3 · Failed');
+    expect(allText(failure)).toContain('Error code');
+    expect(allText(failure)).toContain('AUTH\\\\_REQUIRED');
+    expect(allText(failure)).not.toMatch(/[\u3400-\u9fff]/u);
+  });
+
   it('运行态展示状态、进度、当前节点、等待、循环、回访、来源、runId、更新时间和详情入口', () => {
     const card = parse(baseView());
     const text = allText(card);
@@ -166,6 +201,7 @@ describe('buildV3ProgressCard', () => {
     const card = JSON.parse(buildV3ProgressCard(view, {
       webDetailUrl: 'https://example.test/v3/run',
       saveActions: { chat },
+      locale: 'zh',
     }));
     const saveButtons = card.elements
       .filter((element: any) => element.tag === 'action')
@@ -184,7 +220,7 @@ describe('buildV3ProgressCard', () => {
       scope: 'chat',
       nonce: 'chat-only',
     };
-    const opts = { webDetailUrl: 'https://example.test/v3/run', saveActions: { chat } };
+    const opts = { webDetailUrl: 'https://example.test/v3/run', saveActions: { chat }, locale: 'zh' as const };
 
     const succeeded = allText(JSON.parse(buildV3ProgressCard(baseView({ status: 'succeeded' }), opts)));
     expect(succeeded).toContain('保存到本群');
@@ -303,7 +339,7 @@ describe('buildV3ProgressCard', () => {
     const text = allText(card);
     expect(text).toContain('\\\\<at id=ou\\\\_bad\\\\>');
     expect(text).toContain('\\\\*bold\\\\*');
-    expect(text).toContain('等 6 个');
+    expect(text).toContain('等 1 个');
     expect(text).not.toContain('n6');
   });
 

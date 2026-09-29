@@ -111,17 +111,17 @@ describe('fleet 变更类命令：未知参数一律中止', () => {
   //   restart / start          → rc=1，「❌ 未找到配置文件」
   //   stop --force             → rc=0，「daemon 未在运行。」
   it.each([
-    ['update', '--check', '本地 checkout 更新'],
-    ['update', '--dry-run', '本地 checkout 更新'],
-    ['update', '-n', '本地 checkout 更新'],
-    ['upgrade', '--check', '本地 checkout 更新'],
+    ['update', '--check', 'Local checkout update'],
+    ['update', '--dry-run', 'Local checkout update'],
+    ['update', '-n', 'Local checkout update'],
+    ['upgrade', '--check', 'Local checkout update'],
     ['restart', '--now', '未找到配置文件'],
     ['start', '--daemon', '未找到配置文件'],
     ['stop', '--force', 'daemon 未在运行'],
   ])('botmux %s %s → rc=2，不执行', (command, flag, dispatchMarker) => {
     const r = runCli([command, flag]);
     expect(r.status).toBe(2);
-    expect(r.stderr).toContain('未知参数');
+    expect(r.stderr).toContain('Unknown argument');
     expect(r.stderr).toContain(flag);
     expect(r.stdout + r.stderr).not.toContain(dispatchMarker);
     // ⚠️ 这条断言的区分力**逐格不同**，同样是实测：没有这道闸时，
@@ -153,7 +153,7 @@ describe('fleet 变更类命令：未知参数一律中止', () => {
     ['restart', '未找到配置文件'],
   ])('botmux %s --with-plugin 照常放行', (command, dispatchMarker) => {
     const r = runCli([command, '--with-plugin']);
-    expect(r.stderr).not.toContain('未知参数');
+    expect(r.stderr).not.toContain('Unknown argument');
     expect(r.stdout + r.stderr).toContain(dispatchMarker);
   });
 
@@ -166,11 +166,11 @@ describe('fleet 变更类命令：未知参数一律中止', () => {
   // 把 plugin service 也停掉」，start 没有「停」这一段，加上去是个不生效的参数。
   it.each([
     ['start', '未找到配置文件'],
-    ['update', '本地 checkout 更新'],
+    ['update', 'Local checkout update'],
   ])('botmux %s --with-plugin → rc=2（这条命令没声明它）', (command, dispatchMarker) => {
     const r = runCli([command, '--with-plugin']);
     expect(r.status).toBe(2);
-    expect(r.stderr).toContain('未知参数');
+    expect(r.stderr).toContain('Unknown argument');
     expect(r.stderr).toContain('--with-plugin');
     expect(r.stdout + r.stderr).not.toContain(dispatchMarker);
   });
@@ -181,7 +181,7 @@ describe('fleet 变更类命令：未知参数一律中止', () => {
   it('botmux stop foo → rc=2（位置参数同样是未知参数）', () => {
     const r = runCli(['stop', 'foo']);
     expect(r.status).toBe(2);
-    expect(r.stderr).toContain('未知参数');
+    expect(r.stderr).toContain('Unknown argument');
     expect(r.stderr).toContain('foo');
     expect(r.stdout + r.stderr).not.toContain('daemon 未在运行');
   });
@@ -189,8 +189,8 @@ describe('fleet 变更类命令：未知参数一律中止', () => {
   // 报错文案要按命令说出它到底接受什么，否则 stop/restart 上那句「只有 --help」
   // 本身就是错的，用户会照着它把一个能用的参数当成不存在。
   it('报错文案按命令列出可接受的参数', () => {
-    expect(runCli(['stop', '--force']).stderr).toContain('只接受: --help --with-plugin');
-    expect(runCli(['update', '--check']).stderr).toContain('只接受: --help');
+    expect(runCli(['stop', '--force']).stderr).toContain('accepts only: --help --with-plugin');
+    expect(runCli(['update', '--check']).stderr).toContain('accepts only: --help');
     expect(runCli(['update', '--check']).stderr).not.toContain('--with-plugin');
   });
 });

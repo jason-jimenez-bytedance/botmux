@@ -30,9 +30,22 @@ const INPUT = {
   errorClass: 'workerError',
   errorCode: 'AUTH_REQUIRED',
   message: '需要登录 gcloud',
+  locale: 'zh' as const,
 };
 
 describe('buildV3BlockedCard', () => {
+  it('defaults a new failure/recovery card to English', () => {
+    const { locale: _locale, ...input } = INPUT;
+    const card = JSON.parse(buildV3BlockedCard({ ...input, message: 'Sign in to gcloud.' }));
+    const text = JSON.stringify(card);
+
+    expect(card.header.title.content).toContain('Node blocked');
+    expect(text).toContain('Reason');
+    expect(text).toContain('Retry');
+    expect(text).toContain('Web details (sign-in required)');
+    expect(text).not.toMatch(/[\u3400-\u9fff]/u);
+  });
+
   it('pending 卡：orange header + 重试按钮 value 带 action/runId/nodeId/attemptId/nonce', () => {
     const card = JSON.parse(buildV3BlockedCard(INPUT));
     expect(card.header.template).toBe('orange');

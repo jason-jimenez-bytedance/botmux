@@ -160,6 +160,11 @@ export interface BotSnapshot {
   cliId: CliId;
   cliPathOverride?: string;
   model?: string;
+  /** Resolved bot language frozen with the run so background/replayed turns
+   *  use the same response language as the conversation that created it. */
+  locale?: import('../../i18n/types.js').Locale;
+  /** Optional Workbench conversation guidance, frozen for background workers. */
+  conversationPreset?: import('../../core/conversation-preset.js').ConversationPreset;
   /** Frozen per-bot sandbox policy. Workflow workers must not silently lose
    *  these fields when spawning outside the main forkWorker path. */
   sandbox?: boolean;

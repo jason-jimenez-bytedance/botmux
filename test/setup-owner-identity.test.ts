@@ -62,7 +62,7 @@ describe('scripted setup owner identity', () => {
       'ou_source',
       { sourceAppId: 'cli_source', sourceOwnerOpenId: 'ou_source', creatingApp: true },
       async () => undefined,
-    )).rejects.toThrow(/不能把当前 Bot 的 app-scoped open_id.*union_id/);
+    )).rejects.toThrow(/cannot reuse the current bot's app-scoped open_id.*union_id/i);
   });
 
   it('rejects every unrelated open_id before creating a brand-new app', async () => {
@@ -72,7 +72,7 @@ describe('scripted setup owner identity', () => {
       'owner@example.com,ou_foreign',
       { creatingApp: true },
       resolveStable,
-    )).rejects.toThrow(/创建新 Bot 时不能使用 app-scoped open_id.*ou_foreign/);
+    )).rejects.toThrow(/cannot use an app-scoped open_id while creating a new bot.*ou_foreign/i);
     expect(resolveStable).not.toHaveBeenCalled();
   });
 

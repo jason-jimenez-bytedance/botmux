@@ -453,6 +453,19 @@ describe('global dashboard config', () => {
     expect(readGlobalConfig().plugins).toEqual(['agent-chrome', 'gitlab']);
   });
 
+  it('preserves only an exact approved downstream release pin', () => {
+    writeFileSync(globalConfigPath(), JSON.stringify({
+      distribution: { approvedVersion: ' v3.31.0-rc.2 ' },
+    }));
+    expect(readGlobalConfig().distribution).toEqual({ approvedVersion: '3.31.0-rc.2' });
+
+    writeFileSync(globalConfigPath(), JSON.stringify({
+      distribution: { approvedVersion: 'latest' },
+    }));
+    invalidateGlobalConfigCache();
+    expect(readGlobalConfig().distribution).toBeUndefined();
+  });
+
   it('readGlobalConfig sees fresh values immediately after a merge (cache invalidation)', () => {
     writeFileSync(globalConfigPath(), JSON.stringify({ dashboard: { publicReadOnly: true } }));
     expect(readGlobalConfig().dashboard?.publicReadOnly).toBe(true); // primes the TTL cache

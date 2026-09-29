@@ -12,6 +12,7 @@
  */
 
 import { effectiveDefaultWorkingDir, type BotConfig } from '../../bot-registry.js';
+import { botLocale } from '../../i18n/index.js';
 import { newSessionCodexInstanceState, type SessionCliInstanceBindingV1 } from '../../services/codex-instance-pool.js';
 import { isGoalNode, isLoopNode, type V3Dag } from './dag.js';
 import {
@@ -76,6 +77,8 @@ export function botToSnapshot(bot: BotConfig, workingDirOverride?: string): BotS
     cliId: bot.cliId,
     ...((instance.cliPathOverride ?? bot.cliPathOverride) ? { cliPathOverride: instance.cliPathOverride ?? bot.cliPathOverride } : {}),
     ...(bot.model ? { model: bot.model } : {}),
+    locale: botLocale(bot),
+    ...(bot.conversationPreset ? { conversationPreset: bot.conversationPreset } : {}),
     ...(bot.sandbox === true ? { sandbox: true } : {}),
     ...(sandboxPathsSnapshot(bot.sandboxPaths) ? { sandboxPaths: sandboxPathsSnapshot(bot.sandboxPaths)! } : {}),
     ...(bot.sandboxHidePaths?.length ? { sandboxHidePaths: [...bot.sandboxHidePaths] } : {}),
@@ -142,6 +145,8 @@ export function parseFrozenBotSnapshots(raw: unknown, dag?: V3Dag): Map<string, 
     'cliId',
     'cliPathOverride',
     'model',
+    'locale',
+    'conversationPreset',
     'sandbox',
     'sandboxPaths',
     'sandboxHidePaths',
@@ -174,6 +179,12 @@ export function parseFrozenBotSnapshots(raw: unknown, dag?: V3Dag): Map<string, 
       if (obj[field] !== undefined && typeof obj[field] !== 'string') {
         throw new Error(`bots.snapshot.json[${JSON.stringify(key)}].${field} must be a string`);
       }
+    }
+    if (obj.locale !== undefined && obj.locale !== 'en' && obj.locale !== 'zh') {
+      throw new Error(`bots.snapshot.json[${JSON.stringify(key)}].locale must be en or zh`);
+    }
+    if (obj.conversationPreset !== undefined && obj.conversationPreset !== 'workbench') {
+      throw new Error(`bots.snapshot.json[${JSON.stringify(key)}].conversationPreset must be workbench`);
     }
     for (const field of ['sandbox', 'sandboxNetwork'] as const) {
       if (obj[field] !== undefined && typeof obj[field] !== 'boolean') {
@@ -221,6 +232,10 @@ export function parseFrozenBotSnapshots(raw: unknown, dag?: V3Dag): Map<string, 
       cliId: obj.cliId as BotSnapshot['cliId'],
       ...(obj.cliPathOverride !== undefined ? { cliPathOverride: obj.cliPathOverride as string } : {}),
       ...(obj.model !== undefined ? { model: obj.model as string } : {}),
+      ...(obj.locale !== undefined ? { locale: obj.locale as BotSnapshot['locale'] } : {}),
+      ...(obj.conversationPreset !== undefined
+        ? { conversationPreset: obj.conversationPreset as BotSnapshot['conversationPreset'] }
+        : {}),
       ...(obj.sandbox !== undefined ? { sandbox: obj.sandbox as boolean } : {}),
       ...(parsedSandboxPaths ? { sandboxPaths: parsedSandboxPaths } : {}),
       ...(obj.sandboxHidePaths !== undefined ? { sandboxHidePaths: [...obj.sandboxHidePaths as string[]] } : {}),

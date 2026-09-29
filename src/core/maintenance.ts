@@ -37,13 +37,11 @@ import {
   botmuxVersion,
   botmuxInstallRoot,
   botmuxVersionAt,
-  diskVersionAt,
   botmuxCliEntry,
   botmuxCliEntryAt,
 } from '../utils/install-info.js';
 import {
   resolveGlobalInstallPlan,
-  formatGlobalInstallCommand,
   UnsupportedGlobalInstallError,
   type GlobalInstallPlan,
 } from '../utils/global-install.js';
@@ -285,10 +283,10 @@ export async function applyBotmuxUpdate(
     const r = await replaceStandaloneBinary(version, strategy.target);
     return { strategy: 'self-replace', detail: `${r.asset} → ${r.target}` };
   }
-  const spec = version.startsWith('botmux@') ? version : `botmux@${version}`;
-  const plan = resolveGlobalInstallPlan(strategy.packageRoot, process.platform, spec);
-  installLatestBotmuxSync(plan);
-  return { strategy: 'package-manager', detail: formatGlobalInstallCommand(plan) };
+  throw new UnsupportedGlobalInstallError(
+    'unknown',
+    strategy.kind === 'package-manager' ? strategy.packageRoot : process.execPath,
+  );
 }
 
 /**
@@ -676,15 +674,9 @@ function productionDeps(): MaintenanceDeps {
         installedTo = runSelfReplaceBlocking();
         return;
       }
-      installPlan ??= resolveGlobalInstallPlan(strategy.packageRoot);
-      installLatestBotmuxSync(installPlan);
-      // Report what landed on DISK. For a compiled binary installed by a package
-      // manager, `currentVersion()` (→ botmuxVersionAt) returns this process's
-      // BAKED version and so cannot see the update npm just performed — measured,
-      // and it would make the tick log "already on the latest version" and skip the
-      // restart. diskVersionAt deliberately ignores the baked value. Under Node the
-      // two agree, so this is a no-op there.
-      installedTo = diskVersionAt(installPlan.activePackageRoot);
+      // The fork has no independent npm package. Handing this path to a package
+      // manager would install upstream `botmux`, violating release provenance.
+      throw new UnsupportedGlobalInstallError('unknown', strategy.packageRoot);
     },
     installedVersion: () => installedTo,
     writeIntent: (intent) => writeRestartIntent(intent),

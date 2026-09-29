@@ -26,7 +26,7 @@ import type { SessionRow } from '../../core/dashboard-rows.js';
 import { config } from '../../config.js';
 import { formatUrlHost } from '../../core/dashboard-url.js';
 import { closeResidualIsLocal, describeCloseResidual, parseCloseResidual } from '../../core/close-residual.js';
-import { type Locale, t } from '../../i18n/index.js';
+import { getDefaultLocale, type Locale, t } from '../../i18n/index.js';
 
 import { terminalMultiUrl } from './card-builder.js';
 import type { CardActionData } from './card-handler.js';
@@ -678,7 +678,7 @@ export async function handleSessionsCardAction(
   larkAppId: string,
   deps: SessionsCardHandlerDeps,
 ): Promise<SessionsCardHandlerResult> {
-  const locale: Locale = deps.locale ?? 'zh';
+  const locale: Locale = deps.locale ?? getDefaultLocale();
   const value = (data.action?.value ?? {}) as Record<string, string>;
   const operatorOpenId = data.operator?.open_id;
   const action = value.action;

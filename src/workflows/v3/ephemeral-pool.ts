@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import type { WorkerToDaemon } from '../../types.js';
 import type { BackendType } from '../../adapters/backend/types.js';
 import { config } from '../../config.js';
+import { getDefaultLocale } from '../../i18n/index.js';
 import { spawnWorker } from '../../core/self-spawn.js';
 import {
   expandWorkflowWorkingDir,
@@ -257,7 +258,8 @@ async function runNodeImpl(
     larkAppId: req.botSnapshot.larkAppId,
     larkAppSecret: secret,
     botName: req.node.bot,
-    locale: 'zh' as const,
+    locale: req.botSnapshot.locale ?? getDefaultLocale(),
+    conversationPreset: req.botSnapshot.conversationPreset,
   };
 
   return new Promise<RunNodeResult>((resolve) => {

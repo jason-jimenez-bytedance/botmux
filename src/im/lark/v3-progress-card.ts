@@ -12,6 +12,7 @@ import { config } from '../../config.js';
 import { buildV3RunDetailUrl, buildV3TerminalUrl } from '../../core/dashboard-url.js';
 import type { V3ProgressView } from '../../workflows/v3/progress-projection.js';
 import type { V3RunSaveActionValue } from './v3-run-save-card.js';
+import { DEFAULT_LOCALE, t, type Locale } from '../../i18n/index.js';
 
 export interface V3ProgressCardOptions {
   /** Override the dashboard link (primarily for tests). */
@@ -23,6 +24,7 @@ export interface V3ProgressCardOptions {
   saveActions?: {
     chat: V3RunSaveActionValue;
   };
+  locale?: Locale;
 }
 
 const MAX_INLINE_IDS = 5;
@@ -36,7 +38,8 @@ export function buildV3ProgressCard(
   view: V3ProgressView,
   options: V3ProgressCardOptions = {},
 ): string {
-  const chrome = statusChrome(view.status);
+  const locale = options.locale ?? DEFAULT_LOCALE;
+  const chrome = statusChrome(view.status, locale);
   const completed = view.counts.done + view.counts.skipped + view.counts.cancelled;
   const webDetailUrl = options.webDetailUrl ?? v3ProgressRunDetailUrl(view.runId);
   const terminalUrl = view.terminal
@@ -46,25 +49,25 @@ export function buildV3ProgressCard(
         viewToken: view.terminal.viewToken,
       })
     : null;
-  const source = sourceLabel(view.source);
+  const source = sourceLabel(view.source, locale);
   const elements: Array<Record<string, unknown>> = [
     {
       tag: 'div',
       fields: [
         {
           is_short: true,
-          text: { tag: 'lark_md', content: `**状态**\n${chrome.emoji} ${chrome.label}` },
+          text: { tag: 'lark_md', content: `**${t('workflow.v3.field.status', undefined, locale)}**\n${chrome.emoji} ${chrome.label}` },
         },
         {
           is_short: true,
           text: {
             tag: 'lark_md',
-            content: `**进度**\n${completed} / ${view.counts.total} 节点完成`,
+            content: `**${t('workflow.v3.field.progress', undefined, locale)}**\n${t('workflow.v3.progress.nodes_complete', { completed, total: view.counts.total }, locale)}`,
           },
         },
         {
           is_short: true,
-          text: { tag: 'lark_md', content: `**来源**\n${escapeMd(source)}` },
+          text: { tag: 'lark_md', content: `**${t('workflow.v3.field.source', undefined, locale)}**\n${escapeMd(source)}` },
         },
         {
           is_short: true,
@@ -74,66 +77,73 @@ export function buildV3ProgressCard(
     },
     {
       tag: 'note',
-      elements: [{ tag: 'plain_text', content: `更新时间：${formatUpdatedAt(view.updatedAt)}` }],
+      elements: [{ tag: 'plain_text', content: t('workflow.v3.updated_at', { time: formatUpdatedAt(view.updatedAt) }, locale) }],
     },
   ];
 
   if (view.currentNodeIds.length > 0) {
-    appendSection(elements, '🏃 当前节点', formatIdList(view.currentNodeIds));
+    appendSection(elements, t('workflow.v3.section.current_nodes', undefined, locale), formatIdList(view.currentNodeIds, locale));
   }
 
   if (view.waitingNodeIds.length > 0) {
-    appendSection(elements, '⏸ 等待', formatIdList(view.waitingNodeIds));
+    appendSection(elements, t('workflow.v3.section.waiting', undefined, locale), formatIdList(view.waitingNodeIds, locale));
   }
 
   if (view.loops.length > 0) {
     appendSection(
       elements,
-      '🔁 循环',
+      t('workflow.v3.section.loops', undefined, locale),
       view.loops.map((loop) => {
         const effectiveMax = loop.maxIterations + loop.granted;
         const budget = effectiveMax > 0 ? ` / ${effectiveMax}` : '';
-        const grant = loop.granted > 0 ? ` · 已追加 ${loop.granted} 轮` : '';
-        const decision = loop.lastDecision ? ` · ${loopDecisionLabel(loop.lastDecision)}` : '';
-        return `${escapeMd(loop.loopId)}：第 ${loop.iteration}${budget} 轮${grant}${decision}`;
+        const grant = loop.granted > 0
+          ? t('workflow.v3.loop.granted', { count: loop.granted }, locale)
+          : '';
+        const decision = loop.lastDecision ? ` · ${loopDecisionLabel(loop.lastDecision, locale)}` : '';
+        return `${escapeMd(loop.loopId)}: ${t('workflow.v3.loop.round', {
+          iteration: loop.iteration,
+          budget,
+          grant,
+          decision,
+        }, locale)}`;
       }).join('\n'),
     );
   }
 
   if (view.revisit.count > 0) {
     const refreshed = view.revisit.refreshedNodeIds.length > 0
-      ? ` · 刷新 ${formatIdList(view.revisit.refreshedNodeIds)}`
+      ? t('workflow.v3.revisit.refreshed', { nodes: formatIdList(view.revisit.refreshedNodeIds, locale) }, locale)
       : '';
-    appendSection(elements, '↩️ 回访', `${view.revisit.count} 次${refreshed}`);
+    appendSection(elements, t('workflow.v3.section.revisits', undefined, locale), t('workflow.v3.revisit.count', { count: view.revisit.count, refreshed }, locale));
   }
 
   if (view.issue) {
     const parts: string[] = [];
-    if (view.issue.nodeId) parts.push(`节点 ${escapeMd(view.issue.nodeId)}`);
+    if (view.issue.nodeId) parts.push(t('workflow.v3.issue.node', { node: escapeMd(view.issue.nodeId) }, locale));
     if (view.issue.errorClass) parts.push(escapeMd(view.issue.errorClass));
     if (view.issue.errorCode) parts.push(`\`${escapeMd(view.issue.errorCode)}\``);
-    appendSection(elements, '⚠️ 错误码', parts.length > 0 ? parts.join(' · ') : 'UNKNOWN');
+    appendSection(elements, t('workflow.v3.section.error_code', undefined, locale), parts.length > 0 ? parts.join(' · ') : 'UNKNOWN');
   }
 
   if (view.feishuHostFailed) {
     appendSection(
       elements,
-      'Feishu host 节点失败',
+      t('workflow.v3.section.host_failed', undefined, locale),
       view.upstreamNonHostFinished
-        ? '上游非 host 节点已完成，失败发生在 Feishu host 节点。该节点可能是通知，也可能是业务交付；请按 DAG 语义核对后再决定是否重试。'
-        : '失败发生在 Feishu host 节点。该节点可能是通知，也可能是业务交付；其它业务节点状态请以节点进度为准。',
+        ? t('workflow.v3.host_failed.after_upstream', undefined, locale)
+        : t('workflow.v3.host_failed.general', undefined, locale),
     );
   }
 
   if (view.uncertainHostEffectCount && view.uncertainHostEffectCount > 0) {
     appendSection(
       elements,
-      '⚠️ 外部效果待核实',
-      `流程已停止，但有 ${view.uncertainHostEffectCount} 个外部操作的最终状态无法确认。请在 Web 详情中核对，不要直接重试该节点。`,
+      t('workflow.v3.section.uncertain_effects', undefined, locale),
+      t('workflow.v3.uncertain_effects', { count: view.uncertainHostEffectCount }, locale),
     );
   }
 
-  appendTerminalHint(elements, view);
+  appendTerminalHint(elements, view, locale);
 
   if (
     view.status === 'starting' ||
@@ -141,7 +151,7 @@ export function buildV3ProgressCard(
     view.status === 'waiting' ||
     view.status === 'blocked'
   ) {
-    appendSection(elements, '停止运行', `\`/workflow cancel ${escapeMd(view.runId)}\``);
+    appendSection(elements, t('workflow.v3.section.stop', undefined, locale), `\`/workflow cancel ${escapeMd(view.runId)}\``);
   }
 
   if (view.status === 'succeeded' && view.source.kind === 'ad_hoc' && options.saveActions) {
@@ -150,7 +160,7 @@ export function buildV3ProgressCard(
       actions: [
         {
           tag: 'button',
-          text: { tag: 'plain_text', content: '保存到本群' },
+          text: { tag: 'plain_text', content: t('workflow.v3.button.save_chat', undefined, locale) },
           type: 'primary',
           value: options.saveActions.chat,
         },
@@ -164,7 +174,7 @@ export function buildV3ProgressCard(
       actions: [
         {
           tag: 'button',
-          text: { tag: 'plain_text', content: '终端（手机可看）' },
+          text: { tag: 'plain_text', content: t('workflow.v3.button.terminal', undefined, locale) },
           type: 'primary',
           multi_url: {
             url: terminalUrl,
@@ -182,7 +192,7 @@ export function buildV3ProgressCard(
     actions: [
       {
         tag: 'button',
-        text: { tag: 'plain_text', content: 'Web 详情（需登录）' },
+        text: { tag: 'plain_text', content: t('workflow.v3.button.web', undefined, locale) },
         type: 'default',
         multi_url: {
           url: webDetailUrl,
@@ -229,63 +239,64 @@ function appendSection(
 function appendTerminalHint(
   elements: Array<Record<string, unknown>>,
   view: V3ProgressView,
+  locale: Locale,
 ): void {
   if (view.status !== 'succeeded') return;
 
   if (view.source.kind === 'ad_hoc') {
     appendSection(
       elements,
-      '保存复用',
-      `\`/workflow save ${escapeMd(view.runId)} [名称]\``,
+      t('workflow.v3.section.save', undefined, locale),
+      `\`/workflow save ${escapeMd(view.runId)} [${t('workflow.v3.name_placeholder', undefined, locale)}]\``,
     );
   } else if (view.source.kind === 'saved_definition') {
     appendSection(
       elements,
-      '再次运行',
-      `来源：${escapeMd(view.source.workflowId)} · v${view.source.humanVersion}\n` +
+      t('workflow.v3.section.run_again', undefined, locale),
+      `${t('workflow.v3.saved_source', { workflowId: escapeMd(view.source.workflowId), version: view.source.humanVersion }, locale)}\n` +
         `\`/workflow run ${escapeMd(view.source.workflowId)}\``,
     );
   }
 }
 
-function sourceLabel(source: V3ProgressView['source']): string {
+function sourceLabel(source: V3ProgressView['source'], locale: Locale): string {
   switch (source.kind) {
-    case 'ad_hoc': return '即兴编排';
-    case 'saved_definition': return `已保存 · ${source.workflowId} · v${source.humanVersion}`;
-    case 'manual_cli': return '本地 CLI';
-    case 'legacy_v3': return '旧版 v3';
+    case 'ad_hoc': return t('workflow.v3.source.ad_hoc', undefined, locale);
+    case 'saved_definition': return t('workflow.v3.source.saved', { workflowId: source.workflowId, version: source.humanVersion }, locale);
+    case 'manual_cli': return t('workflow.v3.source.manual_cli', undefined, locale);
+    case 'legacy_v3': return t('workflow.v3.source.legacy', undefined, locale);
   }
 }
 
-function statusChrome(status: V3ProgressView['status']): {
+function statusChrome(status: V3ProgressView['status'], locale: Locale): {
   emoji: string;
   label: string;
   template: string;
 } {
   switch (status) {
-    case 'starting': return { emoji: '⏳', label: '准备中', template: 'blue' };
-    case 'running': return { emoji: '🔄', label: '运行中', template: 'blue' };
-    case 'cancelling': return { emoji: '⏹', label: '取消中', template: 'orange' };
-    case 'cancelled': return { emoji: '⏹', label: '已取消', template: 'grey' };
-    case 'waiting': return { emoji: '⏸', label: '等待中', template: 'orange' };
-    case 'blocked': return { emoji: '🚧', label: '已阻塞', template: 'orange' };
-    case 'succeeded': return { emoji: '✅', label: '已完成', template: 'green' };
-    case 'failed': return { emoji: '❌', label: '失败', template: 'red' };
+    case 'starting': return { emoji: '⏳', label: t('workflow.v3.status.starting', undefined, locale), template: 'blue' };
+    case 'running': return { emoji: '🔄', label: t('workflow.v3.status.running', undefined, locale), template: 'blue' };
+    case 'cancelling': return { emoji: '⏹', label: t('workflow.v3.status.cancelling', undefined, locale), template: 'orange' };
+    case 'cancelled': return { emoji: '⏹', label: t('workflow.v3.status.cancelled', undefined, locale), template: 'grey' };
+    case 'waiting': return { emoji: '⏸', label: t('workflow.v3.status.waiting', undefined, locale), template: 'orange' };
+    case 'blocked': return { emoji: '🚧', label: t('workflow.v3.status.blocked', undefined, locale), template: 'orange' };
+    case 'succeeded': return { emoji: '✅', label: t('workflow.v3.status.succeeded', undefined, locale), template: 'green' };
+    case 'failed': return { emoji: '❌', label: t('workflow.v3.status.failed', undefined, locale), template: 'red' };
   }
 }
 
-function loopDecisionLabel(decision: NonNullable<V3ProgressView['loops'][number]['lastDecision']>): string {
+function loopDecisionLabel(decision: NonNullable<V3ProgressView['loops'][number]['lastDecision']>, locale: Locale): string {
   switch (decision) {
-    case 'exit': return '已退出';
-    case 'continue': return '继续';
-    case 'exhausted': return '轮次耗尽';
+    case 'exit': return t('workflow.v3.loop.decision.exit', undefined, locale);
+    case 'continue': return t('workflow.v3.loop.decision.continue', undefined, locale);
+    case 'exhausted': return t('workflow.v3.loop.decision.exhausted', undefined, locale);
   }
 }
 
-function formatIdList(ids: readonly string[]): string {
+function formatIdList(ids: readonly string[], locale: Locale): string {
   const visible = ids.slice(0, MAX_INLINE_IDS).map(escapeMd);
   const remaining = ids.length - visible.length;
-  return `${visible.join('、')}${remaining > 0 ? ` 等 ${ids.length} 个` : ''}`;
+  return `${visible.join(locale === 'en' ? ', ' : '、')}${remaining > 0 ? t('workflow.v3.id.more', { count: remaining }, locale) : ''}`;
 }
 
 function formatUpdatedAt(iso: string): string {

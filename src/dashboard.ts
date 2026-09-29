@@ -208,12 +208,8 @@ import {
 } from './utils/local-dev-update.js';
 import {
   detectGlobalInstallManager,
-  formatGlobalInstallCommand,
-  resolveGlobalInstallPlan,
   tryResolveGlobalInstallPlan,
   isAutoUpdateSupportedInstall,
-  withGlobalInstallRegistry,
-  UnsupportedGlobalInstallError,
   type GlobalInstallPlan,
 } from './utils/global-install.js';
 import {
@@ -2114,7 +2110,7 @@ void runCodexNotifierWorkerSupervisor({
   }),
   logger,
   onLeaseUnavailable: path => {
-    logger.warn(`[codex-notifier] outbox worker 已由另一 Dashboard 持有，等待接管：${path}`);
+    logger.warn(`[codex-notifier] Outbox worker is held by another Dashboard; waiting to take over: ${path}`);
   },
 });
 
@@ -4585,9 +4581,9 @@ const server = createServer(async (req, res) => {
       // strategy by BINARY LOCATION first; only fall back to the package-root
       // classification for the Node path (unchanged there).
       const updateStrategy = currentUpdateStrategy(classifyRoot);
-      const installPlan = updateStrategy.kind === 'package-manager'
-        ? tryResolveGlobalInstallPlan(updateStrategy.packageRoot)
-        : null;
+      // This fork publishes GitHub Release binaries only. Never advertise an
+      // npm/pnpm/Bun update that would replace it with the upstream package.
+      const installPlan = null;
       const selfReplace = updateStrategy.kind === 'self-replace';
       // Compare against the npm `latest` dist-tag (always stable; the update
       // button installs `@latest`). isNewerVersion uses semver precedence, so a
@@ -4635,19 +4631,19 @@ const server = createServer(async (req, res) => {
         // the wrapper points at is a real git worktree; otherwise the button
         // stays disabled (there is nothing to pull).
         localDevUpdatable: localDev && isGitWorktree(resolveLocalDevCheckoutDir()),
-        updateSupported: installPlan !== null || selfReplace,
+        updateSupported: selfReplace,
         // Rollback is a SEPARATE capability from update. The web UI used to derive
         // it from `updateSupported`, which now includes the self-replacing binary —
         // but /api/update/rollback only knows how to drive a package manager, so a
         // curl-installed binary would be offered a button that always fails.
         // Report it explicitly instead of letting the UI infer it.
-        rollbackSupported: installPlan !== null,
+        rollbackSupported: selfReplace,
         // The standalone binary is not owned by a package manager; report it as
         // its own kind rather than letting the UI claim "npm/pnpm/Bun only".
-        updateManager: selfReplace ? 'binary' : (installPlan?.manager ?? installManager),
+        updateManager: selfReplace ? 'binary' : installManager,
         updateCommand: selfReplace
           ? `botmux update（下载并替换 ${updateStrategy.target}）`
-          : installPlan ? formatGlobalInstallCommand(installPlan) : null,
+          : null,
         node: checkNode(),
         installs: detectBotmuxInstalls(),
       });
@@ -4772,68 +4768,17 @@ const server = createServer(async (req, res) => {
           manager: 'binary',
         });
       }
-      let installPlan: GlobalInstallPlan;
-      try {
-        // ⚠️ NOT `botmuxInstallRoot()`: for a compiled binary that is "/" and the
-        // resolve below throws, which is the very defect this PR fixes. The
-        // strategy resolved above already carries the right root (the sibling main
-        // package for an npm/pnpm/Bun subpackage; the running install root under
-        // Node). `lastSuccessfulUpdatePlan` still wins so a pnpm update keeps using
-        // the stable symlink it resolved last time.
-        const packageRoot = lastSuccessfulUpdatePlan?.activePackageRoot
-          ?? (runStrategy.kind === 'package-manager' ? runStrategy.packageRoot : botmuxInstallRoot());
-        installPlan = resolveGlobalInstallPlan(packageRoot);
-      } catch (error) {
-        if (error instanceof UnsupportedGlobalInstallError) {
-          return jsonRes(res, 400, {
-            ok: false,
-            error: 'unsupported_install_method',
-            manager: error.manager,
-          });
-        }
-        throw error;
+      if (runStrategy.kind === 'package-manager') {
+        return jsonRes(res, 400, {
+          ok: false,
+          error: 'fork_binary_install_required',
+          manager: detectGlobalInstallManager(runStrategy.packageRoot),
+        });
       }
-      const node = checkNode();
-      if (!node.ok) return jsonRes(res, 400, { ok: false, error: 'node_too_old', node });
-      if (updateInFlight) return jsonRes(res, 409, { ok: false, error: 'update_in_flight' });
-      updateInFlight = true;
-      let oldVersion = '';
-      // Acquire the shared cross-process lock so a scheduled maintenance
-      // auto-update (running in the bot-0 daemon) can't update the same global
-      // install concurrently. `acquired` distinguishes "lock held by
-      // maintenance" (409) from "the package manager failed" (500). Short wait:
-      // don't block the request on a full in-progress install — report busy fast.
-      let acquired = false;
-      let blockedByRestart = false;
-      try {
-        await withFileLock(globalInstallUpdateLockTarget(), async () => {
-          acquired = true;
-          if (hasActiveRestartLease()) {
-            blockedByRestart = true;
-            return;
-          }
-          oldVersion = botmuxVersionAt(installPlan.activePackageRoot);
-          await runGlobalInstall(installPlan);
-        }, { maxWaitMs: 2_000 });
-      } catch (e) {
-        if (!acquired) return jsonRes(res, 409, { ok: false, error: 'update_in_flight' });
-        return jsonRes(res, 500, { ok: false, error: 'install_failed', detail: e instanceof Error ? e.message : String(e) });
-      } finally {
-        updateInFlight = false;
-      }
-      if (blockedByRestart) return jsonRes(res, 409, { ok: false, error: 'restart_in_flight' });
-      // Read the DISK, not `botmuxVersionAt`: for a compiled binary the baked
-      // version takes priority and would report this process's OLD version even
-      // though npm just rewrote package.json (measured) — making `changed` always
-      // false and the "restart to apply" prompt never appear.
-      const newVersion = diskVersionAt(installPlan.activePackageRoot);
-      lastSuccessfulUpdatePlan = installPlan;
-      return jsonRes(res, 200, {
-        ok: true,
-        oldVersion,
-        newVersion,
-        changed: newVersion !== oldVersion,
-        manager: installPlan.manager,
+      return jsonRes(res, 400, {
+        ok: false,
+        error: 'unsupported_install_method',
+        manager: 'unknown',
       });
     }
 
@@ -4863,45 +4808,25 @@ const server = createServer(async (req, res) => {
         return jsonRes(res, 400, { ok: false, error: 'not_rollback_target' });
       }
 
-      // Rollback only knows how to drive a package manager. Resolve the strategy
-      // first so a compiled binary uses its MAPPED root: on a fresh process there
-      // is no `lastSuccessfulUpdatePlan` yet and `botmuxInstallRoot()` is "/", which
-      // made the very first rollback throw `unsupported_install_method` even though
-      // /api/update/status had just reported `rollbackSupported: true`.
+      // Fork rollbacks use the same GitHub Release binary source as installs and
+      // updates. Package-manager installs are intentionally unsupported because
+      // `botmux@<version>` belongs to the unrelated upstream distribution.
       const rollbackStrategy = currentUpdateStrategy(botmuxInstallRoot());
-      if (rollbackStrategy.kind !== 'package-manager') {
+      if (rollbackStrategy.kind !== 'self-replace') {
         return jsonRes(res, 400, {
           ok: false,
           error: 'unsupported_install_method',
-          manager: rollbackStrategy.kind === 'self-replace' ? 'binary' : 'unknown',
+          manager: rollbackStrategy.kind === 'package-manager'
+            ? detectGlobalInstallManager(rollbackStrategy.packageRoot)
+            : 'unknown',
         });
       }
-      let installPlan: GlobalInstallPlan;
-      try {
-        const packageRoot = lastSuccessfulUpdatePlan?.activePackageRoot ?? rollbackStrategy.packageRoot;
-        installPlan = withGlobalInstallRegistry(
-          resolveGlobalInstallPlan(packageRoot, process.platform, `botmux@${targetVersion}`),
-        );
-      } catch (error) {
-        if (error instanceof UnsupportedGlobalInstallError) {
-          return jsonRes(res, 400, {
-            ok: false,
-            error: 'unsupported_install_method',
-            manager: error.manager,
-          });
-        }
-        throw error;
-      }
-
-      const node = checkNode();
-      if (!node.ok) return jsonRes(res, 400, { ok: false, error: 'node_too_old', node });
       if (updateInFlight) return jsonRes(res, 409, { ok: false, error: 'update_in_flight' });
       updateInFlight = true;
 
       let acquired = false;
       let blockedByRestart = false;
       let invalidRollbackTarget = false;
-      let installedVersionMismatch = '';
       let restartIntentError = '';
       let leaseId: string | null = null;
       let oldVersion = '';
@@ -4913,22 +4838,14 @@ const server = createServer(async (req, res) => {
             return;
           }
 
-          oldVersion = botmuxVersionAt(installPlan.activePackageRoot);
+          oldVersion = currentInstalledVersion();
           if (compareVersions(targetVersion, oldVersion) >= 0) {
             invalidRollbackTarget = true;
             return;
           }
 
-          await runGlobalInstall(installPlan);
-          // diskVersionAt, not botmuxVersionAt: the baked version of a compiled
-          // binary would never equal the rollback target, so this verification
-          // would report a spurious `installed_version_mismatch` on every rollback.
-          const newVersion = diskVersionAt(installPlan.activePackageRoot);
-          lastSuccessfulUpdatePlan = installPlan;
-          if (newVersion !== targetVersion) {
-            installedVersionMismatch = newVersion;
-            return;
-          }
+          await replaceStandaloneBinary(targetVersion, rollbackStrategy.target);
+          const newVersion = targetVersion;
 
           leaseId = claimRestartLease();
           if (!leaseId) {
@@ -4957,7 +4874,7 @@ const server = createServer(async (req, res) => {
               if (launched) return;
               launched = true;
               try {
-                const child = spawnDetachedRestart('dashboard', installPlan.activePackageRoot, leaseId!);
+                const child = spawnDetachedRestart('dashboard', undefined, leaseId!);
                 if (!child.pid) throw new Error('restart driver did not start');
               } catch (error) {
                 clearRestartLease(leaseId!);
@@ -4975,7 +4892,7 @@ const server = createServer(async (req, res) => {
                 oldVersion,
                 newVersion,
                 changed: true,
-                manager: installPlan.manager,
+                manager: 'binary',
                 operation: 'rollback',
               });
             } finally {
@@ -4986,14 +4903,6 @@ const server = createServer(async (req, res) => {
 
         if (blockedByRestart) return jsonRes(res, 409, { ok: false, error: 'restart_in_flight' });
         if (invalidRollbackTarget) return jsonRes(res, 409, { ok: false, error: 'not_rollback_target' });
-        if (installedVersionMismatch) {
-          return jsonRes(res, 500, {
-            ok: false,
-            error: 'install_version_mismatch',
-            expectedVersion: targetVersion,
-            actualVersion: installedVersionMismatch,
-          });
-        }
         if (restartIntentError) {
           return jsonRes(res, 500, { ok: false, error: 'restart_intent_failed', detail: restartIntentError });
         }
@@ -5532,6 +5441,7 @@ const server = createServer(async (req, res) => {
         dirMode?: unknown;
         model?: unknown;
         requireCriticalScopesBeforeActivation?: unknown;
+        conversationPreset?: unknown;
       };
       try {
         const chunks: Buffer[] = [];
@@ -5615,6 +5525,16 @@ const server = createServer(async (req, res) => {
           message: 'requireCriticalScopesBeforeActivation 必须是 boolean',
         });
       }
+      if (
+        parsed.conversationPreset !== undefined
+        && parsed.conversationPreset !== 'workbench'
+      ) {
+        return jsonRes(res, 400, {
+          ok: false,
+          error: 'invalid_conversation_preset',
+          message: 'conversationPreset must be workbench when provided',
+        });
+      }
       const job = botOnboarding.start({
         appName,
         ...(typeof parsed.cloneSourceAppId === 'string' && parsed.cloneSourceAppId.trim()
@@ -5630,6 +5550,9 @@ const server = createServer(async (req, res) => {
         model,
         ...(parsed.requireCriticalScopesBeforeActivation === true
           ? { requireCriticalScopesBeforeActivation: true }
+          : {}),
+        ...(parsed.conversationPreset === 'workbench'
+          ? { conversationPreset: 'workbench' as const }
           : {}),
       });
       return jsonRes(res, 202, { job: botOnboarding.get(job.id) });
@@ -8390,12 +8313,12 @@ federationSync.unref();
 async function tryAutoBindOwner(): Promise<'done' | 'retry'> {
   try {
     const r = await autoBindOwnerIfUnambiguous(config.session.dataDir, { fetcher: fetch, live: liveBots() });
-    if (r.status === 'bound') { logger.info(`[identity] 已自动绑定本部署负责人：${r.owner?.name || r.owner?.unionId}（头像/拉群/归属即时生效）`); return 'done'; }
+    if (r.status === 'bound') { logger.info(`[identity] Deployment owner bound automatically: ${r.owner?.name || r.owner?.unionId} (avatar, group invitation, and ownership take effect immediately)`); return 'done'; }
     if (r.status === 'already_bound') return 'done';
-    if (r.status === 'need_choice') { logger.info(`[identity] 检测到 ${r.candidates?.length ?? 0} 个候选负责人，请到面板「团队」手动选择绑定`); return 'done'; }
+    if (r.status === 'need_choice') { logger.info(`[identity] Found ${r.candidates?.length ?? 0} owner candidates; select one manually under Team in the Dashboard`); return 'done'; }
     return 'retry'; // no_candidates：可能是网络/凭证未就绪的瞬时失败，退避后重试
   } catch (e) {
-    logger.debug(`[identity] 自动绑定尝试失败（将退避重试）：${(e as Error).message}`);
+    logger.debug(`[identity] Automatic owner binding failed; retrying with backoff: ${(e as Error).message}`);
     return 'retry';
   }
 }
@@ -8484,7 +8407,7 @@ function startPlatformTunnelIfBound(): void {
     // Only the first token creation needs the path+lock helper.
     if (!existingToken) {
       loadOrCreatePersistedToken(TOKEN_PATH);
-      logger.info('[platform-tunnel] 已初始化 dashboard token');
+      logger.info('[platform-tunnel] Dashboard token initialized');
     }
     const version = readBotmuxVersion();
     platformTunnel = startPlatformTunnelClient({
@@ -8497,13 +8420,13 @@ function startPlatformTunnelIfBound(): void {
       onTeamSync: handlePlatformTeamSync,
       log: (msg, extra) => logger.info(`[platform-tunnel] ${msg}${extra ? ' ' + JSON.stringify(extra) : ''}`),
     });
-    logger.info(`[platform-tunnel] 绑定到 ${binding.platformUrl}，启动隧道`);
+    logger.info(`[platform-tunnel] Bound to ${binding.platformUrl}; starting tunnel`);
     // 大厅打卡自愈重试：team-sync 应用时会立即尝试一次；这里的低频周期兜住
     // "当时 daemon 离线 / bot 还没进大厅 / 发送失败"的漏拍。无平台绑定不启动。
     const hallTimer = setInterval(() => { void maybeAnnounceHallPresence(); }, 5 * 60 * 1000);
     hallTimer.unref();
   } catch (e) {
-    logger.warn(`[platform-tunnel] 启动失败: ${(e as Error).message}`);
+    logger.warn(`[platform-tunnel] Startup failed: ${(e as Error).message}`);
   }
 }
 
@@ -8511,10 +8434,10 @@ function startPlatformTunnelIfBound(): void {
 function handlePlatformTeamSync(payload: PlatformTeamSyncMessage): void {
   const applied = applyPlatformTeamSync(config.session.dataDir, payload);
   if (!applied) {
-    logger.warn('[platform-tunnel] team-sync 负载无效，忽略');
+    logger.warn('[platform-tunnel] Invalid team-sync payload; ignoring');
     return;
   }
-  logger.info(`[platform-tunnel] team-sync 已应用 rev=${applied.rev} teams=${applied.teams.length}`);
+  logger.info(`[platform-tunnel] team-sync applied rev=${applied.rev} teams=${applied.teams.length}`);
   void maybeAnnounceHallPresence();
 }
 
@@ -8593,22 +8516,22 @@ async function maybeAnnounceHallPresence(): Promise<void> {
           });
           const j = await r.json().catch(() => ({} as { ok?: boolean; error?: string; mentioned?: string[]; unresolved?: string[]; skipped?: string }));
           if (!r.ok || !(j as { ok?: boolean }).ok) {
-            logger.warn(`[platform-tunnel] 大厅打卡失败 bot=${bot.appId} chat=${hallChatId.substring(0, 12)}: ${(j as { error?: string }).error ?? r.status}`);
+            logger.warn(`[platform-tunnel] Hall check-in failed bot=${bot.appId} chat=${hallChatId.substring(0, 12)}: ${(j as { error?: string }).error ?? r.status}`);
           } else {
             sent = !(j as { skipped?: string }).skipped;
             const mentioned = (j as { mentioned?: string[] }).mentioned ?? [];
             const unresolved = (j as { unresolved?: string[] }).unresolved ?? [];
-            if (sent) logger.info(`[platform-tunnel] 大厅打卡已发 bot=${bot.appId} chat=${hallChatId.substring(0, 12)}${mentioned.length ? ` 点名=[${mentioned.join(',')}]` : ''}${unresolved.length ? ` 未解析=[${unresolved.join(',')}]` : ''}`);
+            if (sent) logger.info(`[platform-tunnel] Hall check-in sent bot=${bot.appId} chat=${hallChatId.substring(0, 12)}${mentioned.length ? ` mentioned=[${mentioned.join(',')}]` : ''}${unresolved.length ? ` unresolved=[${unresolved.join(',')}]` : ''}`);
           }
         } catch (e) {
-          logger.warn(`[platform-tunnel] 大厅打卡请求异常 bot=${bot.appId}: ${(e as Error).message}`);
+          logger.warn(`[platform-tunnel] Hall check-in request failed bot=${bot.appId}: ${(e as Error).message}`);
         }
         bumpHallAnnounceState(throttleKey, sent);
         state[throttleKey] = { lastAt: now, tries: (st?.tries ?? 0) + (sent ? 1 : 0) };
       }
     }
   } catch (e) {
-    logger.warn(`[platform-tunnel] 大厅打卡检查异常: ${(e as Error).message}`);
+    logger.warn(`[platform-tunnel] Hall check-in verification failed: ${(e as Error).message}`);
   }
 }
 

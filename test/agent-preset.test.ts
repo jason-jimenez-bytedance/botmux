@@ -82,9 +82,9 @@ describe('buildPreset — version + guide stamping', () => {
     const preset = buildPreset({ cliId: 'codex' });
     expect(preset.botmuxPreset).toBe(PRESET_VERSION);
     expect(preset.guide).toBe(PRESET_GUIDE);
-    expect(preset.guide).toContain('不包含任何凭证');
-    expect(preset.guide).toContain('daemon 注入的 `BOTMUX_OWNER_OPEN_ID`');
-    expect(preset.guide).toContain('`open_id` 只属于签发它的应用');
+    expect(preset.guide).toContain('contains no credentials or deployment information');
+    expect(preset.guide).toContain('BOTMUX_OWNER_OPEN_ID injected into the current session');
+    expect(preset.guide).toContain('An open_id belongs only to the app that issued it');
   });
 });
 

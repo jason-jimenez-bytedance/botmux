@@ -47,8 +47,8 @@ describe('botmux update/upgrade target arguments validation', () => {
     for (const args of conflictingCases) {
       const res = runCli(args);
       expect(res.status).toBe(2);
-      expect(res.stderr).toContain('不能同时指定多个升级目标');
-      expect(res.stdout).not.toContain('本地 checkout 更新');
+      expect(res.stderr).toContain('Multiple update targets were supplied');
+      expect(res.stdout).not.toContain('Local checkout update');
     }
   }, 15_000);
 
@@ -65,8 +65,8 @@ describe('botmux update/upgrade target arguments validation', () => {
     for (const args of protocolCases) {
       const res = runCli(args);
       expect(res.status).toBe(2);
-      expect(res.stderr).toContain('非法的目标频道或版本格式');
-      expect(res.stdout).not.toContain('本地 checkout 更新');
+      expect(res.stderr).toContain('Invalid update target');
+      expect(res.stdout).not.toContain('Local checkout update');
     }
   }, 30_000);
 
@@ -84,8 +84,8 @@ describe('botmux update/upgrade target arguments validation', () => {
     for (const args of rangeCases) {
       const res = runCli(args);
       expect(res.status).toBe(2);
-      expect(res.stderr).toContain('非法的目标频道或版本格式');
-      expect(res.stdout).not.toContain('本地 checkout 更新');
+      expect(res.stderr).toContain('Invalid update target');
+      expect(res.stdout).not.toContain('Local checkout update');
     }
   }, 30_000);
 
@@ -102,8 +102,8 @@ describe('botmux update/upgrade target arguments validation', () => {
     for (const args of nonLatestCases) {
       const res = runCli(args);
       expect(res.status).toBe(1);
-      expect(res.stderr).toContain('当前为本地 git checkout 开发环境，不支持切换到 npm 频道/版本');
-      expect(res.stdout).not.toContain('本地 checkout 更新');
+      expect(res.stderr).toContain('This is a local Git checkout');
+      expect(res.stdout).not.toContain('Local checkout update');
     }
   }, 15_000);
 });

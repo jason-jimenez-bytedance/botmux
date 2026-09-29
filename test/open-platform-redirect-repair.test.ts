@@ -269,7 +269,7 @@ describe('repairOpenPlatformRedirects', () => {
     if (!out.ok) return;
     const map = byAppId(out.results);
     expect(map.cli_other.status).toBe('not_owned');
-    expect(map.cli_other.message).toContain('换成该应用的开发者账号');
+    expect(map.cli_other.message).toContain('app developer account');
     // 前一个 app 被拒不能拖垮整批 —— 多租户混挂时这是常态。
     expect(map.cli_own.status).toBe('fixed');
   });
@@ -438,7 +438,7 @@ describe('repairOpenPlatformRedirects', () => {
     expect(map.local_riff).toMatchObject({ status: 'failed' });
     expect(map.local_riff.message).toContain('apiOnly');
     expect(map.cli_nope).toMatchObject({ status: 'failed' });
-    expect(map.cli_nope.message).toContain('不在 bots.json 里');
+    expect(map.cli_nope.message).toContain('not present in bots.json');
     expect(stub.writes.map(w => w.appId)).toEqual(['cli_a']);
   });
 

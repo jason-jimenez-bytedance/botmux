@@ -40,11 +40,11 @@ import { config } from '../config.js';
 import { resolveOwnerUserToken, generateAuthUrl, FEED_GROUP_OAUTH_SCOPES } from '../utils/user-token.js';
 import { larkHosts, normalizeBrand } from '../im/lark/lark-hosts.js';
 import { sendUserMessage } from '../im/lark/client.js';
-import { t, localeForBot } from '../i18n/index.js';
+import { getDefaultLocale, t, localeForBot } from '../i18n/index.js';
 import { logger } from '../utils/logger.js';
 
 /** 连 bot 显示名都拿不到时的最后兜底（多 bot 下毫无区分度，仅作保底）。 */
-const DEFAULT_TAG_NAME = 'Botmux群会话';
+const DEFAULT_TAG_NAMES = { en: 'Botmux chats', zh: 'Botmux群会话' } as const;
 /** 自定义标签名的保守长度上限（按码点算，中文/emoji 各算 1）。飞书未公开分组名
  *  的精确上限，取 60 足够放下正常命名，又不至于被服务端以超长拒绝。 */
 export const MAX_SESSION_TAG_NAME_CODEPOINTS = 60;
@@ -73,18 +73,19 @@ function botScopedTagName(botLabel: string, locale: 'zh' | 'en'): string {
  * 标签 / 分组名的回落链（feed-group 与 chat-tag 两种模式共用，保证默认名一致）：
  *   1. 用户在 bots.json / Dashboard 配的 `sessionGroup.tag.name`（trim 后非空）
  *   2. 「<bot 显示名>会话」——多 bot / 多设备下靠 bot 名区分
- *   3. DEFAULT_TAG_NAME——bot 显示名也拿不到时的保底
+ *   3. 当前语言的 Botmux 默认名——bot 显示名也拿不到时的保底
  */
 export function resolveSessionTagName(input: {
   configuredName?: string;
   botDisplayName?: string;
   locale?: 'zh' | 'en';
 }): string {
+  const locale = input.locale ?? getDefaultLocale();
   const configured = clampSessionTagName(input.configuredName ?? '');
   if (configured) return configured;
   const label = input.botDisplayName?.trim();
-  if (!label) return DEFAULT_TAG_NAME;
-  return botScopedTagName(label, input.locale === 'en' ? 'en' : 'zh');
+  if (!label) return DEFAULT_TAG_NAMES[locale];
+  return botScopedTagName(label, locale);
 }
 
 /**
@@ -94,7 +95,7 @@ export function resolveSessionTagName(input: {
  *
  * 取舍：只读内存注册表，同步、零 IO。`botName` 由 daemon 启动时的
  * `probeBotOpenId`（/bot/v3/info）异步回填，理论上极早期的一次建群可能还没探测到，
- * 此时默认名先落到 DEFAULT_TAG_NAME；等下一次打标（探测早已完成）由下方
+ * 此时默认名先落到当前语言的产品默认；等下一次打标（探测早已完成）由下方
  * configuredName 改名机制自动纠正成「<bot 名>会话」，不必在打标链路里等 IO。
  */
 function botDisplayLabel(state: BotState): string | undefined {
@@ -130,7 +131,7 @@ export function defaultSessionTagName(larkAppId: string): string {
       locale: localeForBot(larkAppId),
     });
   } catch {
-    return DEFAULT_TAG_NAME;
+    return DEFAULT_TAG_NAMES[getDefaultLocale()];
   }
 }
 

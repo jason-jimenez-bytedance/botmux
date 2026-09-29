@@ -41,23 +41,23 @@ describe('message edit subscription startup repair', () => {
 
   afterEach(() => {
     expect(mocks.fullSetup).not.toHaveBeenCalled();
-    expect(infoMessages()).not.toMatch(/订阅已确认|订阅已就绪|草稿已写入/);
+    expect(infoMessages()).not.toMatch(/subscription (?:is )?(?:confirmed|ready)|draft (?:was )?written/i);
   });
 
   it('checks only the edit event and keeps existing configuration distinct from published delivery', async () => {
     await ensureMessageUpdatedEventSubscribed(appId);
     expect(mocks.ensureEvents).toHaveBeenCalledExactlyOnceWith(appId, [MESSAGE_UPDATED_EVENT]);
-    expect(infoMessages()).toContain('已有配置包含事件且为长连接，本次未更新');
-    expect(infoMessages()).toContain('发布生效及实际推送未验证');
+    expect(infoMessages()).toContain('Existing im.message.updated_v1 configuration includes the event in persistent-connection mode; no update was made');
+    expect(infoMessages()).toContain('Publication and actual delivery were not verified');
   });
 
   it('reports a successful update and complete readback without claiming the application was published', async () => {
     mocks.ensureEvents.mockResolvedValue({ ok: true, missingEvents: [], eventModeReady: true, updateSubmitted: true });
     await ensureMessageUpdatedEventSubscribed(appId);
-    expect(infoMessages()).toContain('更新请求已成功返回，配置回读包含事件且为长连接');
-    expect(infoMessages()).toContain('启动流程不会自动发布');
-    expect(infoMessages()).toContain('请在开放平台检查并发布应用版本');
-    expect(infoMessages()).toContain('发布生效及实际推送未验证');
+    expect(infoMessages()).toContain('update succeeded and readback includes the event in persistent-connection mode');
+    expect(infoMessages()).toContain('Startup does not publish automatically');
+    expect(infoMessages()).toContain('check and publish the app version in Open Platform');
+    expect(infoMessages()).toContain('Publication and actual delivery were not verified');
   });
 
   it.each([
@@ -69,12 +69,12 @@ describe('message edit subscription startup repair', () => {
     mocks.ensureEvents.mockResolvedValue({ ok: true, ...state });
     await expect(ensureMessageUpdatedEventSubscribed(appId)).resolves.toBeUndefined();
     expect(mocks.ensureEvents).toHaveBeenCalledOnce();
-    expect(infoMessages()).toContain('配置回读不完整');
+    expect(infoMessages()).toContain('configuration readback is incomplete');
     expect(infoMessages()).toContain(`longConnection=${state.eventModeReady}, missing=${state.missingEvents.join(',')}`);
-    expect(infoMessages()).toContain(state.updateSubmitted ? '更新请求已成功返回' : '无成功返回的更新请求');
-    expect(infoMessages()).toContain('发布生效及实际推送未验证');
-    expect(infoMessages()).not.toContain('配置回读包含事件且为长连接');
-    expect(infoMessages()).not.toContain('已有配置包含事件且为长连接');
+    expect(infoMessages()).toContain(state.updateSubmitted ? 'update request succeeded' : 'no successful update request');
+    expect(infoMessages()).toContain('Publication and actual delivery were not verified');
+    expect(infoMessages()).not.toContain('readback includes the event in persistent-connection mode');
+    expect(infoMessages()).not.toContain('Existing im.message.updated_v1 configuration includes the event in persistent-connection mode');
   });
 
   it.each([
@@ -84,10 +84,10 @@ describe('message edit subscription startup repair', () => {
   ])('keeps failed checks distinct from successful update submissions: %j', async ({ reason, updateSubmitted }) => {
     mocks.ensureEvents.mockResolvedValue({ ok: false, reason, message: 'fixture failure', updateSubmitted });
     await expect(ensureMessageUpdatedEventSubscribed(appId)).resolves.toBeUndefined();
-    expect(infoMessages()).toContain(`配置检查未完成（${reason}`);
-    expect(infoMessages()).toContain(updateSubmitted ? '更新请求已成功返回' : '无成功返回的更新请求');
-    expect(infoMessages()).toContain('发布生效及实际推送未验证');
-    expect(infoMessages()).not.toContain('配置回读包含事件且为长连接');
+    expect(infoMessages()).toContain(`configuration check did not finish (${reason}`);
+    expect(infoMessages()).toContain(updateSubmitted ? 'update request succeeded' : 'no successful update request');
+    expect(infoMessages()).toContain('Publication and actual delivery were not verified');
+    expect(infoMessages()).not.toContain('readback includes the event in persistent-connection mode');
   });
 
   it('contains an unexpected helper exception so ordinary message startup can continue', async () => {

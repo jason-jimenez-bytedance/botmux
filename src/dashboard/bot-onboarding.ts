@@ -35,6 +35,10 @@ import {
 import type { CliId } from '../adapters/cli/types.js';
 import type { Brand } from '../im/lark/lark-hosts.js';
 import { validateCliLaunchModeConfig } from '../core/cli-launch-mode.js';
+import {
+  conversationPresetValues,
+  type ConversationPreset,
+} from '../core/conversation-preset.js';
 
 // Static default-imports of qrcode-terminal's vendored QRCode class (its public
 // API only prints to a terminal; we need the low-level class to render a QR into
@@ -186,6 +190,8 @@ export interface BotOnboardingInput {
    * the bot only after all critical scopes are readable.
    */
   requireCriticalScopesBeforeActivation?: boolean;
+  /** Explicit one-shot conversation defaults for a newly provisioned bot. */
+  conversationPreset?: ConversationPreset;
 }
 
 type RegisterAppFn = (opts?: RegisterAppOptions) => Promise<RegisterAppResult>;
@@ -532,7 +538,7 @@ export class BotOnboardingManager {
       try {
         unlinkSync(this.pendingStorePath);
       } catch (err: any) {
-        if (err?.code !== 'ENOENT') logger.warn(`[bot-onboarding] 无法清理 owner 待确认恢复文件: ${err?.message ?? String(err)}`);
+        if (err?.code !== 'ENOENT') logger.warn(`[bot-onboarding] Could not remove the pending-owner recovery file: ${err?.message ?? String(err)}`);
       }
       return;
     }
@@ -541,7 +547,7 @@ export class BotOnboardingManager {
       atomicWriteFileSync(this.pendingStorePath, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
     } catch (err: any) {
       // 保留内存态继续让当前页面完成；仅失去进程重启恢复能力，不把已创建应用误报失败。
-      logger.warn(`[bot-onboarding] 无法持久化 owner 待确认任务: ${err?.message ?? String(err)}`);
+      logger.warn(`[bot-onboarding] Could not persist the pending-owner task: ${err?.message ?? String(err)}`);
     }
   }
 
@@ -848,7 +854,7 @@ export class BotOnboardingManager {
     try {
       this.persistPermissionRecoveryJobs();
     } catch (err: any) {
-      logger.warn(`[bot-onboarding] 无法更新权限恢复 lineage: ${err?.message ?? String(err)}`);
+      logger.warn(`[bot-onboarding] Could not update permission-recovery lineage: ${err?.message ?? String(err)}`);
     }
   }
 
@@ -1619,6 +1625,15 @@ export class BotOnboardingManager {
     const cloneSource = input.cloneSourceAppId
       ? configuredBots.find((bot: any) => bot?.larkAppId === input.cloneSourceAppId)
       : undefined;
+    // The critical-scope activation gate is the existing marker for a
+    // Workbench/MOSA-managed new bot. Those bots receive the Workbench preset
+    // unless the caller explicitly selected the same preset; ordinary dashboard
+    // onboarding and clones retain their historical behavior.
+    const requestedConversationPreset = input.conversationPreset
+      ?? (input.requireCriticalScopesBeforeActivation ? 'workbench' : undefined);
+    const conversationPreset = cloneSource
+      ? undefined
+      : conversationPresetValues(requestedConversationPreset);
     if (input.cloneSourceAppId && !cloneSource) {
       this.patch(id, { status: 'failed', error: 'clone_source_not_found', message: '源机器人不存在' });
       return;
@@ -1724,6 +1739,7 @@ export class BotOnboardingManager {
       // 'fixed' → defaultWorkingDir（新话题直接启动、不弹卡片，扫描根回退 ~）；
       // 'card'/缺省 → workingDir（仓库选择卡片扫描根，兼容旧调用方语义）。
       ...(input.dirMode === 'fixed' ? { defaultWorkingDir: workingDir } : { workingDir }),
+      ...(conversationPreset ?? {}),
     };
     if (input.model && input.model.trim()) bot.model = input.model.trim();
     // brand 落盘：只在国际版写字段，feishu 留空（向后兼容，见 normalizeBrand）。

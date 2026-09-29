@@ -164,6 +164,9 @@ export interface SessionCleanupGlobalConfig {
 
 export interface GlobalConfig {
   lang?: Locale;
+  /** Downstream release policy. Workbench-managed hosts may pin one reviewed
+   * GitHub Release so scheduled checks cannot move to an unapproved build. */
+  distribution?: DistributionConfig;
   /** Machine-wide default prefix for groups created via `/group` or `/g`.
    *  Other creation paths intentionally ignore it. Missing means disabled. */
   groupNamePrefix?: string;
@@ -232,6 +235,10 @@ export interface GlobalConfig {
    *  Stored lenient here; final IANA validity is enforced on write
    *  (settings-write-applier) and re-checked at resolve time. */
   scheduleTimeZone?: string;
+}
+
+export interface DistributionConfig {
+  approvedVersion?: string;
 }
 
 export interface GlobalSkillConfig {
@@ -707,6 +714,17 @@ function readWorkflowFeature(raw: unknown): WorkflowFeatureGlobalConfig | undefi
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+function readDistribution(raw: unknown): DistributionConfig | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const value = (raw as Record<string, unknown>).approvedVersion;
+  if (typeof value !== 'string') return undefined;
+  const approvedVersion = value.trim().replace(/^v/i, '');
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(approvedVersion)) {
+    return undefined;
+  }
+  return { approvedVersion };
+}
+
 export function globalConfigPath(): string {
   return join(homedir(), '.botmux', 'config.json');
 }
@@ -755,6 +773,8 @@ export function readGlobalConfig(): GlobalConfig {
   const raw = readRawConfig();
   const out: GlobalConfig = {};
   if (isLocale(raw.lang)) out.lang = raw.lang;
+  const distribution = readDistribution(raw.distribution);
+  if (distribution) out.distribution = distribution;
   const groupNamePrefix = normalizeGroupNamePrefix(raw.groupNamePrefix);
   if (groupNamePrefix) out.groupNamePrefix = groupNamePrefix;
   const repoPickerMode = readRepoPickerMode(raw.repoPickerMode);

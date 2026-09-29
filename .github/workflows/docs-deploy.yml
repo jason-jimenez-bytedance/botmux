@@ -1,16 +1,18 @@
 name: Deploy docs to GitHub Pages
 
-# 把 docs-site（rspress）构建后发布到 deepcoldy.github.io 的 /botmux/ 子路径。
-# 只替换 gh-pages 分支的 botmux/ 子树，保留根跳转与同域其它路径。
-# 妙搭发布链路（docs-site/deploy.sh）保持不变，二者互不影响。
+# This workflow belongs to the upstream deepcoldy/botmux Pages deployment.
+# Forks must not publish to deepcoldy.github.io when their master branch moves.
+# Keep the implementation available for upstream, but require an explicit
+# manual confirmation and hard-gate the job to the upstream repository.
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - 'docs-site/**'
-      - '.github/workflows/docs-deploy.yml'
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the upstream /botmux/ documentation site
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,6 +23,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.repository == 'deepcoldy/botmux' && inputs.publish == true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

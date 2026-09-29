@@ -165,6 +165,7 @@ export function createOhMyPiAdapter(
       botName,
       botOpenId,
       replyDelivery,
+      conversationPreset,
       triggerUserAuth,
       noTransport,
       solo,
@@ -196,6 +197,7 @@ export function createOhMyPiAdapter(
         noTransport,
         triggerUserAuth,
         replyDelivery: effectiveReplyDelivery,
+        conversationPreset,
         solo,
       });
 

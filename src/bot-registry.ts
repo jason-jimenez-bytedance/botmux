@@ -69,6 +69,7 @@ import {
   type QuotaFallbackBotConfig,
 } from './services/quota-fallback.js';
 import { normalizeCardActionAckTimeoutMs } from './core/card-action-ack.js';
+import { normalizeConversationPreset, type ConversationPreset } from './core/conversation-preset.js';
 import type {
   VcMeetingConsumerAgentConfig,
   VcMeetingConsumerConfig,
@@ -1405,6 +1406,12 @@ export interface BotConfig {
   larkAppId: string;
   larkAppSecret: string;
   /**
+   * Named one-shot provisioning preset. Its settings are materialized when the
+   * bot is created; this marker is provenance only, so later explicit edits win
+   * and a future preset revision cannot silently change an existing bot.
+   */
+  conversationPreset?: ConversationPreset;
+  /**
    * Core-only / headless 模式：该 bot 纯 HTTP 控制 API 驱动（trigger →
    * spawn → CLI → trigger-result），**不连接任何飞书**——boot 时跳过
    * open_id 探测、required-scope 校验、WSClient 事件订阅，也不投递飞书消息
@@ -2525,7 +2532,7 @@ export function registerBot(cfg: BotConfig): BotState {
   // 没有任何人能 operate（/restart、/cd、卡片按钮全锁死），也没有 owner 可以处置授权卡 ——
   // 这几乎肯定是配错了，明确告警而不是静默把 bot 变成谁也管不了的状态。
   if (cfg.p2pOpen === true && (cfg.allowedUsers?.length ?? 0) === 0) {
-    logger.warn(`[bot:${cfg.larkAppId}] p2pOpen 已开启但未配 allowedUsers：任何人都能私聊，但没有人能执行管理操作（/restart、/cd、卡片按钮）。请补上 allowedUsers。`);
+    logger.warn(`[bot:${cfg.larkAppId}] p2pOpen is enabled without allowedUsers: anyone can send a direct message, but nobody can perform administrative actions (/restart, /cd, card buttons). Configure allowedUsers.`);
   }
   bots.set(cfg.larkAppId, state);
   return state;
@@ -3566,7 +3573,7 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
         .map((x: string) => (x.startsWith('/') ? x : `/${x}`));
       const dropped = strs.filter((x: string) => !DAEMON_COMMANDS.has(x));
       if (dropped.length > 0) {
-        logger.warn(`[bot-registry:${entry.larkAppId}] canTalkDaemonCommands 丢弃非 daemon 命令条目: ${[...new Set(dropped)].join(' ')}（仅接受 daemon 命令，透传命令写 customPassthroughCommands）`);
+        logger.warn(`[bot-registry:${entry.larkAppId}] canTalkDaemonCommands dropped non-daemon commands: ${[...new Set(dropped)].join(' ')} (daemon commands only; use customPassthroughCommands for passthrough commands)`);
       }
       const uniq = [...new Set<string>(strs.filter((x: string) => DAEMON_COMMANDS.has(x)))];
       if (uniq.length > 0) canTalkDaemonCommands = uniq;
@@ -3695,6 +3702,7 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       // fall back to '' so downstream env plumbing stays a string. Feishu image
       // upload etc. already degrade gracefully on an empty secret.
       larkAppSecret: entry.larkAppSecret ?? '',
+      conversationPreset: normalizeConversationPreset(entry.conversationPreset),
       apiOnly: entry.apiOnly === true || undefined,
       oncallGroup: entry.oncallGroup === undefined ? undefined : normalizeOncallGroupPolicy(entry.oncallGroup),
       feedback: entry.feedback === undefined

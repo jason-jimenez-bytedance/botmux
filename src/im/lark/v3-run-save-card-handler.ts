@@ -21,6 +21,7 @@ import {
   v3RunSaveNonce,
   type V3RunSaveActionValue,
 } from './v3-run-save-card.js';
+import { localeForBot, t, type Locale } from '../../i18n/index.js';
 
 export function isV3RunSaveAction(action: unknown): boolean {
   return action === V3_RUN_SAVE_ACTION || action === V3_RUN_SAVE_CONFIRM_ACTION;
@@ -39,10 +40,11 @@ export async function handleV3RunSaveAction(
   receivingLarkAppId: string | undefined,
   deps: V3RunSaveCardHandlerDeps,
 ): Promise<unknown> {
-  if (!isV3RunSaveAction(value.action)) return stale('非法 action');
-  if (!isValidRunId(value.runId)) return stale('非法 run');
-  if (value.scope !== 'chat' && value.scope !== 'global') return stale('非法 scope');
-  if (!operatorOpenId || !receivingLarkAppId) return denied('无法验证操作人或 bot');
+  const locale = localeForBot(receivingLarkAppId);
+  if (!isV3RunSaveAction(value.action)) return toast('workflow.v3.save.toast.invalid_action', locale);
+  if (!isValidRunId(value.runId)) return toast('workflow.v3.save.toast.invalid_run', locale);
+  if (value.scope !== 'chat' && value.scope !== 'global') return toast('workflow.v3.save.toast.invalid_scope', locale);
+  if (!operatorOpenId || !receivingLarkAppId) return toast('workflow.v3.save.toast.identity', locale);
 
   const baseDir = deps.baseDir ?? defaultBaseDir();
   const runDir = join(baseDir, value.runId);
@@ -54,7 +56,7 @@ export async function handleV3RunSaveAction(
     });
   } catch (err) {
     deps.onError?.(value.runId, err);
-    return stale('run 完整性校验失败');
+    return toast('workflow.v3.save.toast.integrity', locale);
   }
 
   const binding = loaded.envelope.chatBinding;
@@ -63,10 +65,10 @@ export async function handleV3RunSaveAction(
     binding.ownerOpenId !== operatorOpenId ||
     binding.larkAppId !== receivingLarkAppId
   ) {
-    return denied('只有发起该 run 的用户，才能在原 bot 下保存');
+    return toast('workflow.v3.save.toast.owner_only', locale);
   }
   if (loaded.envelope.source.kind === 'legacy_v3' && loaded.envelope.source.original !== 'grill') {
-    return stale('该 legacy run 没有可证明的聊天来源');
+    return toast('workflow.v3.save.toast.legacy_source', locale);
   }
 
   let status: string;
@@ -74,9 +76,9 @@ export async function handleV3RunSaveAction(
     status = materialize(readJournal(join(runDir, 'journal.ndjson'))).runStatus;
   } catch (err) {
     deps.onError?.(value.runId, err);
-    return stale('journal 校验失败');
+    return toast('workflow.v3.save.toast.journal', locale);
   }
-  if (status !== 'succeeded') return stale(`run 状态为 ${status}`);
+  if (status !== 'succeeded') return toast('workflow.v3.save.toast.status', locale, { status });
 
   const warningDigest = value.action === V3_RUN_SAVE_CONFIRM_ACTION
     ? value.warningDigest
@@ -84,18 +86,15 @@ export async function handleV3RunSaveAction(
   if (
     value.action === V3_RUN_SAVE_CONFIRM_ACTION &&
     (typeof warningDigest !== 'string' || !/^[0-9a-f]{64}$/.test(warningDigest))
-  ) return stale('warning digest 不合法');
+  ) return toast('workflow.v3.save.toast.digest', locale);
   if (
     value.nonce !== v3RunSaveNonce(loaded.envelope, value.scope, warningDigest) ||
     (value.action === V3_RUN_SAVE_CONFIRM_ACTION && !warningDigest)
   ) {
-    return stale('nonce 不匹配');
+    return toast('workflow.v3.save.toast.nonce', locale);
   }
   if (value.scope === 'global') {
-    return denied(
-      `卡片不再直接发布当前 Bot 全局 Workflow；请显式发送 ` +
-      `\`/workflow save ${value.runId} [名称] --global\``,
-    );
+    return toast('workflow.v3.save.toast.global', locale, { runId: value.runId });
   }
 
   const context: SavedWorkflowActorContext = {
@@ -130,14 +129,15 @@ export async function handleV3RunSaveAction(
         revisionId: alreadySaved.revision.revisionId,
         scope: alreadySaved.metadata.scope.kind,
         requestedScope: value.scope,
+        locale,
       }));
     } catch (err) {
       if (!(err instanceof SavedWorkflowUnsafeLiteralError)) {
         deps.onError?.(value.runId, err);
-        return failed(value.runId);
+        return failed(value.runId, locale);
       }
       if (err.warningDigest !== warningDigest) {
-        return stale('风险项已经变化，请重新确认');
+        return toast('workflow.v3.save.toast.changed', locale);
       }
     }
   }
@@ -159,6 +159,7 @@ export async function handleV3RunSaveAction(
       revisionId: result.revision.revisionId,
       scope: result.metadata.scope.kind,
       requestedScope: value.scope,
+      locale,
     }));
   } catch (err) {
     if (err instanceof SavedWorkflowUnsafeLiteralError) {
@@ -168,26 +169,23 @@ export async function handleV3RunSaveAction(
         scope: value.scope,
         warnings: err.warnings,
         warningDigest: err.warningDigest,
+        locale,
       }));
     }
     deps.onError?.(value.runId, err);
-    return failed(value.runId);
+    return failed(value.runId, locale);
   }
 }
 
-function stale(reason: string): unknown {
-  return { toast: { type: 'warning', content: `保存入口已失效：${reason}` } };
+function toast(key: string, locale: Locale, params?: Record<string, string | number>): unknown {
+  return { toast: { type: 'warning', content: t(key, params, locale) } };
 }
 
-function denied(reason: string): unknown {
-  return { toast: { type: 'warning', content: reason } };
-}
-
-function failed(runId: string): unknown {
+function failed(runId: string, locale: Locale): unknown {
   return {
     toast: {
       type: 'error',
-      content: `保存失败，请改用 \`/workflow save ${runId}\` 查看详细错误`,
+      content: t('workflow.v3.save.toast.failed', { runId }, locale),
     },
   };
 }

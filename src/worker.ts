@@ -15761,6 +15761,7 @@ async function spawnCli(
     // replyDelivery=transcript + solo：daemon 冻结在 init 上的值，系统提示改口用。
     replyDelivery: cfg.replyDelivery,
     promptInjection: cfg.promptInjection,
+    conversationPreset: cfg.conversationPreset,
     solo: cfg.solo,
     locale: cfg.locale,
     model: ttadkGateway ? undefined : cfg.model,

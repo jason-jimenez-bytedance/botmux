@@ -159,7 +159,7 @@ describe('CLI launch availability', () => {
       cliId: 'codex',
       cliPathOverride: '/definitely/missing/codex',
     }, 'Codex');
-    expect(message).toContain('无法启动 Codex');
+    expect(message).toContain('Cannot start Codex');
     expect(message).toContain('/definitely/missing/codex');
     expect(message).toContain('daemon');
   });

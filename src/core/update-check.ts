@@ -22,6 +22,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { githubAuthHeaders, type GithubAuthResolveOptions } from './github-auth.js';
 import { GITHUB_REPO } from './restart-report.js';
+import { approvedDistributionVersion, normalizeApprovedVersion } from './distribution-policy.js';
 
 export interface ReleaseNote {
   /** Semver without leading 'v' (e.g. "2.85.1"). */
@@ -264,6 +265,15 @@ export interface FetchOpts {
   /** Registry base override (tests / callers that already know it). Invalid
    *  values fall back to the public registry, mirroring runtime behavior. */
   registry?: string;
+  /** Exact approved Workbench build. `null` disables config/env lookup in tests. */
+  approvedVersion?: string | null;
+}
+
+function effectiveApprovedVersion(opts?: FetchOpts): string | undefined {
+  if (opts && Object.prototype.hasOwnProperty.call(opts, 'approvedVersion')) {
+    return normalizeApprovedVersion(opts.approvedVersion);
+  }
+  return approvedDistributionVersion();
 }
 
 export interface ParsedUpdateTarget {
@@ -347,13 +357,50 @@ export async function fetchDistTagVersion(tag: string = 'latest', opts?: FetchOp
   }
 }
 
+/** Resolve a version from this distribution's GitHub Releases. Standalone
+ * installs use this instead of the upstream npm dist-tags. */
+export async function fetchGithubReleaseVersion(tag: string = 'latest', opts?: FetchOpts): Promise<string | null> {
+  const cleanTag = tag.trim().replace(/^@/, '').toLowerCase();
+  if (parseVersion(cleanTag)) return cleanTag.replace(/^v/i, '');
+  const approved = effectiveApprovedVersion(opts);
+  if (cleanTag === 'latest' && approved) return approved;
+  const fetchImpl = opts?.fetchImpl ?? fetch;
+  const endpoint = cleanTag === 'latest'
+    ? `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
+    : `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100`;
+  try {
+    const res = await fetchImpl(endpoint, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'botmux', ...githubAuthHeaders(opts?.auth) },
+      signal: AbortSignal.timeout(opts?.timeoutMs ?? 8_000),
+    });
+    if (!res.ok) return null;
+    const body = await res.json() as unknown;
+    if (cleanTag === 'latest') {
+      const release = body as { tag_name?: unknown };
+      const version = typeof release.tag_name === 'string' ? release.tag_name.replace(/^v/i, '') : '';
+      return parseVersion(version) ? version : null;
+    }
+    if (!KNOWN_CHANNELS.has(cleanTag) || cleanTag === 'latest' || !Array.isArray(body)) return null;
+    const versions = body
+      .map(item => (item && typeof item === 'object'
+        && (item as { draft?: unknown }).draft !== true
+        && typeof (item as { tag_name?: unknown }).tag_name === 'string')
+        ? (item as { tag_name: string }).tag_name.replace(/^v/i, '')
+        : '')
+      .filter(version => parseVersion(version)?.pre[0] === cleanTag)
+      .sort((a, b) => compareVersions(b, a));
+    return versions[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * The `latest` dist-tag version on the registry npm is configured to use —
- * the authoritative target of a `@latest` update. null on any failure
- * (offline, non-200, malformed body, or a version string we can't parse).
+ * Latest approved version for this downstream distribution. A Workbench pin
+ * wins without network access; otherwise GitHub Releases is authoritative.
  */
 export async function fetchLatestVersion(opts?: FetchOpts): Promise<string | null> {
-  return fetchDistTagVersion('latest', opts);
+  return fetchGithubReleaseVersion('latest', opts);
 }
 
 /**
@@ -409,15 +456,28 @@ export function selectRollbackVersions(raw: unknown, current: string, max = 3): 
     }));
 }
 
+/** Stable published GitHub releases older than `current`, newest first. */
+export function selectGithubRollbackVersions(raw: unknown, current: string, max = 3): RollbackVersion[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap(item => {
+      if (!item || typeof item !== 'object') return [];
+      const release = item as Record<string, unknown>;
+      if (release.draft === true || release.prerelease === true || typeof release.tag_name !== 'string') return [];
+      const version = release.tag_name.replace(/^v/i, '');
+      if (!isCanonicalStableVersion(version) || compareVersions(version, current) >= 0) return [];
+      return [{
+        version,
+        publishedAt: typeof release.published_at === 'string' ? release.published_at : null,
+      }];
+    })
+    .sort((a, b) => compareVersions(b.version, a.version))
+    .slice(0, max);
+}
+
 /**
- * Fetch the packument used to offer an allow-listed rollback target.
- * Deliberately PUBLIC, not the npm-configured registry: the rollback install
- * pins its registry to public too (`withGlobalInstallRegistry`, rollback-only
- * opt-in in global-install.ts), and the allow-list validated against this
- * packument must match the source that pin installs from. Following the
- * configured registry here would break rollback for whitelists that don't
- * proxy botmux (lookup 503 → versions_unavailable) even though the pinned
- * public install would have worked. (`opts.registry` does not apply here.)
+ * Fetch rollback candidates from the same fork GitHub Releases used for update
+ * discovery and binary installation. This deliberately never consults npm.
  */
 export async function fetchRollbackVersions(
   current: string,
@@ -425,16 +485,14 @@ export async function fetchRollbackVersions(
 ): Promise<RollbackVersionsResult> {
   const fetchImpl = opts?.fetchImpl ?? fetch;
   try {
-    const res = await fetchImpl(registryPackumentUrl(PUBLIC_REGISTRY), {
-      headers: { Accept: 'application/json', 'User-Agent': 'botmux' },
+    const res = await fetchImpl(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'botmux', ...githubAuthHeaders(opts?.auth) },
       signal: AbortSignal.timeout(opts?.timeoutMs ?? 8_000),
     });
     if (!res.ok) return { ok: false, versions: [] };
     const raw = await res.json();
-    if (!raw || typeof raw !== 'object' || !(raw as Record<string, unknown>).versions) {
-      return { ok: false, versions: [] };
-    }
-    return { ok: true, versions: selectRollbackVersions(raw, current, opts?.max ?? 3) };
+    if (!Array.isArray(raw)) return { ok: false, versions: [] };
+    return { ok: true, versions: selectGithubRollbackVersions(raw, current, opts?.max ?? 3) };
   } catch {
     return { ok: false, versions: [] };
   }

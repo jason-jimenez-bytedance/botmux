@@ -25,10 +25,10 @@ describe('dashboard locale preferences', () => {
     expect(normalizeDashboardLocale('fr-FR')).toBeNull();
   });
 
-  it('detects browser language with Chinese as the fallback', () => {
+  it('detects browser language with English as the fresh-install fallback', () => {
     expect(detectDashboardLocale(['en-US', 'zh-CN'])).toBe('en');
     expect(detectDashboardLocale(['fr-FR', 'zh-Hans-CN'])).toBe('zh');
-    expect(detectDashboardLocale([])).toBe('zh');
+    expect(detectDashboardLocale([])).toBe('en');
   });
 });
 

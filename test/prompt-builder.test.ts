@@ -362,6 +362,46 @@ describe('ebsd service follow-up input', () => {
 });
 
 describe('botmux routing prose XML boundaries', () => {
+  it('makes English a persistent response policy in both prompt delivery paths', () => {
+    const shell = buildBotmuxShellHints('en').join('\n');
+    const system = buildBotmuxSystemPromptText({ locale: 'en' });
+
+    for (const prompt of [shell, system]) {
+      expect(prompt).toContain('Respond in English by default');
+      expect(prompt).toContain('Use another language when the user explicitly requests it');
+      expect(prompt).toContain('Preserve quotations, code, identifiers and requested translations');
+      expect(prompt).not.toContain('every response must be English');
+    }
+    expect(buildBotmuxShellHints('zh').join('\n')).not.toContain('Respond in English by default');
+    expect(buildBotmuxSystemPromptText({ locale: 'zh' })).not.toContain('Respond in English by default');
+  });
+
+  it('keeps the Workbench style and transcript delivery aligned on TraeX opening/follow-up turns', () => {
+    mockBotConfig.conversationPreset = 'workbench';
+    mockBotConfig.replyDelivery = 'transcript';
+    try {
+      const opening = buildNewTopicPrompt(
+        'hello', 'workbench-session', 'traex', undefined, undefined, undefined,
+        undefined, undefined, undefined, 'en', undefined, { larkAppId: 'app_test' },
+      );
+      const followUp = buildFollowUpContent('why?', 'workbench-session', {
+        cliId: 'traex', larkAppId: 'app_test', locale: 'en',
+      });
+
+      expect(opening).toContain('Conversation style: answer short requests directly');
+      expect(opening).toContain('Treat follow-ups and corrections as part of the current task');
+      expect(opening.match(/Conversation style:/g)).toHaveLength(1);
+      expect(opening).toContain('automatically forwarded back to Lark');
+      expect(opening).not.toContain('botmux send');
+      expect(followUp).not.toContain('Conversation style:');
+      expect(followUp).not.toContain('<botmux_reminder>');
+      expect(followUp).toContain('<user_message>\nwhy?\n</user_message>');
+    } finally {
+      delete mockBotConfig.conversationPreset;
+      delete mockBotConfig.replyDelivery;
+    }
+  });
+
   it.each([
     ['zh', '&lt;open_id:名字&gt;'],
     ['en', '&lt;open_id:name&gt;'],
