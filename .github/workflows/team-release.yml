@@ -56,7 +56,8 @@ jobs:
           persist-credentials: false
 
       - name: Verify tag provenance
-        run: test "$(git rev-parse HEAD)" = "$(git rev-parse \"${GITHUB_REF_NAME}^{commit}\")"
+        run: |
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
 
       - uses: actions/setup-node@v6
         if: matrix.linux_baseline == false
@@ -150,7 +151,8 @@ jobs:
           persist-credentials: false
 
       - name: Verify tag provenance
-        run: test "$(git rev-parse HEAD)" = "$(git rev-parse \"${GITHUB_REF_NAME}^{commit}\")"
+        run: |
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
 
       - name: Build inside Alpine
         run: |
